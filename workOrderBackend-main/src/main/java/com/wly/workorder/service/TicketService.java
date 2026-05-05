@@ -1,13 +1,7 @@
 package com.wly.workorder.service;
 
 import com.wly.workorder.common.PageResult;
-import com.wly.workorder.model.TicketModels.CreateFeedbackRequest;
-import com.wly.workorder.model.TicketModels.Feedback;
-import com.wly.workorder.model.TicketModels.ReplyFeedbackRequest;
-import com.wly.workorder.model.TicketModels.TicketStatus;
-import com.wly.workorder.model.TicketModels.UpdateWorkOrderStatusRequest;
-import com.wly.workorder.model.TicketModels.WorkOrder;
-import com.wly.workorder.model.TicketModels.WorkOrderSummary;
+import com.wly.workorder.model.TicketModels.*;
 
 public interface TicketService {
   PageResult<Feedback> pageFeedback(String keyword, TicketStatus status, int pageNum, int pageSize);
@@ -18,9 +12,11 @@ public interface TicketService {
 
   Feedback replyFeedback(String id, ReplyFeedbackRequest request);
 
-  PageResult<WorkOrder> pageWorkOrders(String keyword, String category, String priority, TicketStatus status, int pageNum, int pageSize);
+  PageResult<WorkOrder> pageWorkOrders(String keyword, TicketCategory category, TicketPriority priority, TicketStatus status, int pageNum, int pageSize);
 
   WorkOrderSummary getWorkOrderSummary(String keyword, TicketStatus status);
 
   WorkOrder updateWorkOrderStatus(String id, UpdateWorkOrderStatusRequest request);
+  
+  WorkOrder queryWorkOrderById(String id);
 }

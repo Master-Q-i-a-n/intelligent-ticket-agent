@@ -7,6 +7,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import java.util.HashMap;
+
+
 
 public final class TicketModels {
   private TicketModels() {
@@ -23,7 +26,38 @@ public final class TicketModels {
     LOW,
     MEDIUM,
     HIGH,
-    URGENT
+    URGENT,
+    UNKNOWN
+  }
+
+  public enum TicketCategory {
+    技术故障,
+    产品咨询,
+    功能需求,
+    投诉建议,
+    账单问题,
+    其他,
+    未知
+  }
+
+  public enum TicketEmotion {
+    愤怒,
+    焦虑,
+    失望,
+    急迫,
+    困惑,
+    满意,
+    平静,
+    未知
+  }
+
+  public static HashMap<String, String> priorityMap = new HashMap<>();
+
+  static {
+    priorityMap.put("LOW", "低");
+    priorityMap.put("MEDIUM", "中");
+    priorityMap.put("HIGH", "高");
+    priorityMap.put("URGENT", "紧急");
   }
 
   @Data
@@ -52,13 +86,14 @@ public final class TicketModels {
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  public static class Feedback {
+  public static class WorkOrder {
     private String id;
     private String code;
     private String title;
     private String description;
-    private String category;
+    private TicketCategory category;
     private TicketPriority priority;
+    private TicketEmotion emotion;
     private TicketStatus status;
     private String ownerUsername;
     private String accountName;
@@ -74,18 +109,40 @@ public final class TicketModels {
   @Builder
   @NoArgsConstructor
   @AllArgsConstructor
-  public static class WorkOrder {
+  public static class Feedback {
     private String id;
     private String code;
     private String title;
     private String description;
-    private String category;
-    private String priority;
+    // private String category;
+    // private TicketPriority priority;
     private TicketStatus status;
-    private String assignee;
+    private String ownerUsername;
+    private String accountName;
+    // private String assignee;
     private String createdAt;
     private String updatedAt;
+    private List<String> images;
+    private List<Attachment> attachments;
+    private List<FeedbackReply> replies;
   }
+
+  // @Data
+  // @Builder
+  // @NoArgsConstructor
+  // @AllArgsConstructor
+  // public static class WorkOrder {
+  //   private String id;
+  //   private String code;
+  //   private String title;
+  //   private String description;
+  //   private String category;
+  //   private String priority;
+  //   private TicketStatus status;
+  //   private String assignee;
+  //   private String createdAt;
+  //   private String updatedAt;
+  // }
 
   @Data
   @Builder
@@ -105,12 +162,8 @@ public final class TicketModels {
   public static class CreateFeedbackRequest {
     @NotBlank
     private String title;
-
     @NotBlank
     private String description;
-
-    private String category;
-    private TicketPriority priority;
     private String accountName;
     private List<String> images;
     private List<Attachment> attachments;

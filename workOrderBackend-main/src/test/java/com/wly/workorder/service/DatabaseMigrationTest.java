@@ -39,8 +39,6 @@ class DatabaseMigrationTest {
       CreateFeedbackRequest request = new CreateFeedbackRequest();
       request.setTitle("DB title");
       request.setDescription("DB description");
-      request.setCategory("技术故障");
-      request.setPriority(TicketPriority.MEDIUM);
       request.setAccountName("Tester");
       request.setImages(List.of());
       request.setAttachments(List.of());
@@ -65,8 +63,6 @@ class DatabaseMigrationTest {
       CreateFeedbackRequest request = new CreateFeedbackRequest();
       request.setTitle("DB title 2");
       request.setDescription("DB description 2");
-      request.setCategory("产品咨询");
-      request.setPriority(TicketPriority.LOW);
       request.setAccountName("Tester");
       request.setImages(List.of());
       request.setAttachments(List.of());

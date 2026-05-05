@@ -44,6 +44,10 @@ export const TICKET_PRIORITY_META = {
   URGENT: {
     label: '紧急',
     className: 'is-urgent'
+  },
+  UNKNOWN: {
+    label: '未知',
+    className: 'is-low'
   }
 }
 
@@ -59,7 +63,8 @@ export const TICKET_CATEGORY_OPTIONS = [
   { label: '产品咨询', value: '产品咨询' },
   { label: '功能需求', value: '功能需求' },
   { label: '投诉建议', value: '投诉建议' },
-  { label: '账单问题', value: '账单问题' }
+  { label: '账单问题', value: '账单问题' },
+  { label: '其他', value: '其他' }
 ]
 
 export function createUid(prefix) {
@@ -194,5 +199,5 @@ export function getReplyRoleLabel(role) {
 }
 
 export function toPriorityMeta(priority) {
-  return TICKET_PRIORITY_META[priority] || TICKET_PRIORITY_META.MEDIUM
+  return TICKET_PRIORITY_META[priority] || TICKET_PRIORITY_META.UNKNOWN
 }

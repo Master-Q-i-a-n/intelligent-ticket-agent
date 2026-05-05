@@ -36,8 +36,6 @@ class MySqlFeedbackIntegrationTest {
       CreateFeedbackRequest request = new CreateFeedbackRequest();
       request.setTitle(title);
       request.setDescription("mysql description");
-      request.setCategory("技术故障");
-      request.setPriority(TicketPriority.MEDIUM);
       request.setAccountName("Tester");
       request.setImages(List.of());
       request.setAttachments(List.of());

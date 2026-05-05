@@ -1,6 +1,7 @@
 package com.wly.workorder.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wly.workorder.model.TicketModels.TicketEmotion;
 import com.wly.workorder.model.TicketModels.TicketPriority;
 import com.wly.workorder.model.TicketModels.TicketStatus;
 import java.sql.Connection;
@@ -34,6 +35,7 @@ public class DatabaseSeeder implements CommandLineRunner {
     ensureAvatarColumn();
     ensureCategoryColumn();
     ensurePriorityColumn();
+    ensureEmotionColumn();
 
     Integer userCount = jdbcTemplate.queryForObject("select count(*) from wo_user", Integer.class);
     if (userCount == null || userCount == 0) {
@@ -62,34 +64,34 @@ public class DatabaseSeeder implements CommandLineRunner {
     String now = now();
 
     jdbcTemplate.update(
-      "insert into wo_feedback (id, code, title, description, category, priority, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "insert into wo_feedback (id, code, title, description, category, priority, emotion, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       "fb-1", "FB-001", "导出任务在大数据量下失败",
       "每次导出超过 10 万条数据时都会超时失败，影响了月度报表生成，请尽快协助排查。",
-      "技术故障", TicketPriority.HIGH.name(), TicketStatus.PROCESSING.name(), "user", "西湖托育中心", "客服一组",
+      "技术故障", TicketPriority.HIGH.name(), TicketEmotion.焦虑.name(), TicketStatus.PROCESSING.name(), "user", "西湖托育中心", "客服一组",
       json(List.of(textAsset("附件-导出日志.txt", "导出日志示例：导出任务在 60% 左右超时"))),
       json(List.of("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='112' viewBox='0 0 160 112'%3E%3Crect width='160' height='112' rx='18' fill='%237aa7ff'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='16'%3E导出报错%3C/text%3E%3C/svg%3E")),
       now, now
     );
     jdbcTemplate.update(
-      "insert into wo_feedback (id, code, title, description, category, priority, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "insert into wo_feedback (id, code, title, description, category, priority, emotion, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       "fb-2", "FB-002", "移动端导航在小屏幕重叠",
       "手机横屏进入系统后，侧边导航和顶部导航会发生重叠，部分按钮无法点击。",
-      "技术故障", TicketPriority.MEDIUM.name(), TicketStatus.CLOSED.name(), "user", "城南幼儿园", "前端组", "[]", "[]", now, now
+      "技术故障", TicketPriority.MEDIUM.name(), TicketEmotion.困惑.name(), TicketStatus.CLOSED.name(), "user", "城南幼儿园", "前端组", "[]", "[]", now, now
     );
     jdbcTemplate.update(
-      "insert into wo_feedback (id, code, title, description, category, priority, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "insert into wo_feedback (id, code, title, description, category, priority, emotion, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       "fb-3", "FB-003", "账号权限配置后仍看不到模块",
       "账号已经分配了查看权限，但登录后依旧无法进入数据模块，请协助检查权限配置。",
-      "产品咨询", TicketPriority.LOW.name(), TicketStatus.SOLVED.name(), "user", "余杭护理院", "权限组",
+      "产品咨询", TicketPriority.LOW.name(), TicketEmotion.平静.name(), TicketStatus.SOLVED.name(), "user", "余杭护理院", "权限组",
       "[]",
       json(List.of(textAsset("权限说明.docx", "权限说明：已补齐角色菜单授权和数据看板查看范围"))),
       now, now
     );
     jdbcTemplate.update(
-      "insert into wo_feedback (id, code, title, description, category, priority, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "insert into wo_feedback (id, code, title, description, category, priority, emotion, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       "fb-4", "FB-004", "打印预览按钮点击无响应",
       "申请单详情页里的打印预览按钮点了没有任何反应，怀疑是浏览器兼容问题。",
-      "功能需求", TicketPriority.URGENT.name(), TicketStatus.PENDING.name(), "user", "滨江园区", "", "[]", "[]", now, now
+      "功能需求", TicketPriority.URGENT.name(), TicketEmotion.急迫.name(), TicketStatus.PENDING.name(), "user", "滨江园区", "", "[]", "[]", now, now
     );
 
     jdbcTemplate.update(
@@ -184,6 +186,21 @@ public class DatabaseSeeder implements CommandLineRunner {
       }
       try (Statement statement = connection.createStatement()) {
         statement.execute("alter table wo_feedback add column priority varchar(32) not null default 'MEDIUM'");
+      }
+      return null;
+    });
+  }
+
+  private void ensureEmotionColumn() {
+    jdbcTemplate.execute((Connection connection) -> {
+      DatabaseMetaData metaData = connection.getMetaData();
+      try (ResultSet columns = metaData.getColumns(connection.getCatalog(), null, "wo_feedback", "emotion")) {
+        if (columns.next()) {
+          return null;
+        }
+      }
+      try (Statement statement = connection.createStatement()) {
+        statement.execute("alter table wo_feedback add column emotion varchar(32)");
       }
       return null;
     });

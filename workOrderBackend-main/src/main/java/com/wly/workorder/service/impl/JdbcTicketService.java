@@ -6,16 +6,7 @@ import com.wly.workorder.auth.AuthContext;
 import com.wly.workorder.auth.AuthRole;
 import com.wly.workorder.auth.AuthSession;
 import com.wly.workorder.common.PageResult;
-import com.wly.workorder.model.TicketModels.Attachment;
-import com.wly.workorder.model.TicketModels.CreateFeedbackRequest;
-import com.wly.workorder.model.TicketModels.Feedback;
-import com.wly.workorder.model.TicketModels.FeedbackReply;
-import com.wly.workorder.model.TicketModels.ReplyFeedbackRequest;
-import com.wly.workorder.model.TicketModels.TicketPriority;
-import com.wly.workorder.model.TicketModels.TicketStatus;
-import com.wly.workorder.model.TicketModels.UpdateWorkOrderStatusRequest;
-import com.wly.workorder.model.TicketModels.WorkOrder;
-import com.wly.workorder.model.TicketModels.WorkOrderSummary;
+import com.wly.workorder.model.TicketModels.*;
 import com.wly.workorder.service.TicketService;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -46,14 +37,17 @@ public class JdbcTicketService implements TicketService {
   @Override
   public PageResult<Feedback> pageFeedback(String keyword, TicketStatus status, int pageNum, int pageSize) {
     AuthSession session = AuthContext.require();
-    List<Feedback> items = queryFeedbacks(session, keyword, null, null, status);
+    List<Feedback> items = queryWorkOrders(session, keyword, null, null, status).stream()
+      .map(this::mapFeedbackFromWorkorder)
+      .collect(Collectors.toList());  
     return page(items, pageNum, pageSize);
   }
 
   @Override
   public Feedback getFeedbackById(String id) {
     AuthSession session = AuthContext.require();
-    List<Feedback> items = queryFeedbacks(session, null, null, null, null).stream()
+    List<Feedback> items = queryWorkOrders(session, null, null, null, null).stream()
+      .map(this::mapFeedbackFromWorkorder)
       .filter(item -> Objects.equals(item.getId(), id))
       .collect(Collectors.toList());
     return items.isEmpty() ? null : items.get(0);
@@ -66,14 +60,15 @@ public class JdbcTicketService implements TicketService {
     String id = "fb-" + UUID.randomUUID().toString().substring(0, 8);
     String code = nextCode("FB-");
     String now = now();
-    String category = defaultString(request.getCategory(), "");
-    TicketPriority priority = request.getPriority() != null ? request.getPriority() : TicketPriority.MEDIUM;
+    TicketCategory category = TicketCategory.未知;
+    TicketPriority priority = TicketPriority.UNKNOWN;
+    TicketEmotion emotion = TicketEmotion.未知;
     String imagesJson = writeJson(request.getImages() == null ? List.of() : request.getImages());
     String attachmentsJson = writeJson(request.getAttachments() == null ? List.of() : request.getAttachments());
 
     jdbcTemplate.update(
-      "insert into wo_feedback (id, code, title, description, category, priority, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      id, code, request.getTitle(), request.getDescription(), category, priority.name(), TicketStatus.PENDING.name(), session.getUsername(),
+      "insert into wo_feedback (id, code, title, description, category, priority, emotion, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      id, code, request.getTitle(), request.getDescription(), category.name(), priority.name(), emotion.name(), TicketStatus.PENDING.name(), session.getUsername(),
       defaultString(request.getAccountName(), session.getDisplayName()), "", imagesJson, attachmentsJson, now, now
     );
 
@@ -123,14 +118,12 @@ public class JdbcTicketService implements TicketService {
   }
 
   @Override
-  public PageResult<WorkOrder> pageWorkOrders(String keyword, String category, String priority, TicketStatus status, int pageNum, int pageSize) {
+  public PageResult<WorkOrder> pageWorkOrders(String keyword, TicketCategory category, TicketPriority priority, TicketStatus status, int pageNum, int pageSize) {
     AuthSession session = AuthContext.require();
     if (session.getRole() != AuthRole.ADMIN) {
       throw new IllegalStateException("Only admin can access work orders");
     }
-    List<WorkOrder> items = queryFeedbacks(session, keyword, category, priority, status).stream()
-      .map(this::mapWorkOrderFromFeedback)
-      .collect(Collectors.toList());
+    List<WorkOrder> items = queryWorkOrders(session, keyword, category, priority, status);
     return page(items, pageNum, pageSize);
   }
 
@@ -141,7 +134,7 @@ public class JdbcTicketService implements TicketService {
       throw new IllegalStateException("Only admin can access work order summary");
     }
 
-    List<Feedback> items = queryFeedbacks(session, keyword, null, null, status);
+    List<WorkOrder> items = queryWorkOrders(session, keyword, null, null, status);
     long pending = items.stream().filter(item -> item.getStatus() == TicketStatus.PENDING).count();
     long processing = items.stream().filter(item -> item.getStatus() == TicketStatus.PROCESSING).count();
     long solved = items.stream().filter(item -> item.getStatus() == TicketStatus.SOLVED).count();
@@ -180,9 +173,9 @@ public class JdbcTicketService implements TicketService {
     return queryWorkOrderById(id);
   }
 
-  private List<Feedback> queryFeedbacks(AuthSession session, String keyword, String category, String priority, TicketStatus status) {
+  private List<WorkOrder> queryWorkOrders(AuthSession session, String keyword, TicketCategory category, TicketPriority priority, TicketStatus status) {
     StringBuilder sql = new StringBuilder(
-      "select id, code, title, description, category, priority, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at " +
+      "select id, code, title, description, category, priority, emotion, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at " +
         "from wo_feedback where 1=1"
     );
     List<Object> args = new ArrayList<>();
@@ -194,13 +187,13 @@ public class JdbcTicketService implements TicketService {
       sql.append(" and status = ?");
       args.add(status.name());
     }
-    if (category != null && !category.isBlank()) {
+    if (category != null) {
       sql.append(" and category = ?");
-      args.add(category);
+      args.add(category.name());
     }
-    if (priority != null && !priority.isBlank()) {
+    if (priority != null) {
       sql.append(" and priority = ?");
-      args.add(priority);
+      args.add(priority.name());
     }
     if (keyword != null && !keyword.isBlank()) {
       sql.append(" and (lower(code) like ? or lower(title) like ? or lower(description) like ? or lower(account_name) like ? or lower(assignee) like ? or lower(category) like ?)");
@@ -214,18 +207,19 @@ public class JdbcTicketService implements TicketService {
     }
     sql.append(" order by updated_at desc");
 
-    List<Feedback> feedbacks = jdbcTemplate.query(sql.toString(), this::mapFeedback, args.toArray());
-    if (feedbacks.isEmpty()) {
-      return feedbacks;
+    List<WorkOrder> fulldata = jdbcTemplate.query(sql.toString(), this::mapWorkOrder, args.toArray());
+    if (fulldata.isEmpty()) {
+      return fulldata;
     }
 
     Map<String, List<FeedbackReply>> repliesByFeedbackId = queryRepliesByFeedbackIds(
-      feedbacks.stream().map(Feedback::getId).collect(Collectors.toList())
+      fulldata.stream().map(WorkOrder::getId).collect(Collectors.toList())
     );
-    for (Feedback feedback : feedbacks) {
-      feedback.setReplies(repliesByFeedbackId.getOrDefault(feedback.getId(), List.of()));
+    
+    for (WorkOrder fd : fulldata) {
+      fd.setReplies(repliesByFeedbackId.getOrDefault(fd.getId(), List.of()));
     }
-    return feedbacks;
+    return fulldata;
   }
 
   private Map<String, List<FeedbackReply>> queryRepliesByFeedbackIds(List<String> feedbackIds) {
@@ -254,41 +248,26 @@ public class JdbcTicketService implements TicketService {
     }
     return grouped;
   }
-
-  private List<WorkOrder> queryWorkOrders(String keyword, String category, String priority, TicketStatus status) {
+  
+  @Override
+  public WorkOrder queryWorkOrderById(String id) {
     AuthSession session = AuthContext.require();
-    return queryFeedbacks(session, keyword, category, priority, status).stream()
-      .map(this::mapWorkOrderFromFeedback)
+    List<WorkOrder> items = queryWorkOrders(session, null, null, null, null).stream()
+      .filter(item -> Objects.equals(item.getId(), id))
       .collect(Collectors.toList());
-  }
-
-  private WorkOrder queryWorkOrderById(String id) {
-    List<WorkOrder> items = jdbcTemplate.query(
-      "select id, code, title, description, category, priority, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at from wo_feedback where id = ?",
-      (rs, rowNum) -> mapWorkOrderFromFeedback(mapFeedback(rs, rowNum)),
-      id
-    );
     return items.isEmpty() ? null : items.get(0);
   }
 
-  private Feedback mapFeedback(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
-    String priorityStr = rs.getString("priority");
-    TicketPriority priority = TicketPriority.MEDIUM;
-    try {
-      if (priorityStr != null && !priorityStr.isBlank()) {
-        priority = TicketPriority.valueOf(priorityStr);
-      }
-    } catch (IllegalArgumentException e) {
-      priority = TicketPriority.MEDIUM;
-    }
-    
-    return Feedback.builder()
+  private WorkOrder mapWorkOrder(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+
+    return WorkOrder.builder()
       .id(rs.getString("id"))
       .code(rs.getString("code"))
       .title(rs.getString("title"))
       .description(rs.getString("description"))
-      .category(rs.getString("category"))
-      .priority(priority)
+      .category(TicketCategory.valueOf(rs.getString("category")))
+      .priority(TicketPriority.valueOf(rs.getString("priority")))
+      .emotion(TicketEmotion.valueOf(rs.getString("emotion")))
       .status(TicketStatus.valueOf(rs.getString("status")))
       .ownerUsername(rs.getString("owner_username"))
       .accountName(rs.getString("account_name"))
@@ -301,31 +280,21 @@ public class JdbcTicketService implements TicketService {
       .build();
   }
 
-  private WorkOrder mapWorkOrder(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
-    return WorkOrder.builder()
-      .id(rs.getString("id"))
-      .code(rs.getString("code"))
-      .title(rs.getString("title"))
-      .description(rs.getString("description"))
-      .status(TicketStatus.valueOf(rs.getString("status")))
-      .assignee(rs.getString("assignee"))
-      .createdAt(rs.getString("created_at"))
-      .updatedAt(rs.getString("updated_at"))
-      .build();
-  }
-
-  private WorkOrder mapWorkOrderFromFeedback(Feedback feedback) {
-    return WorkOrder.builder()
-      .id(feedback.getId())
-      .code(feedback.getCode())
-      .title(feedback.getTitle())
-      .description(feedback.getDescription())
-      .category(defaultString(feedback.getCategory(), ""))
-      .priority(feedback.getPriority() != null ? feedback.getPriority().name() : "MEDIUM")
-      .status(feedback.getStatus())
-      .assignee(defaultString(feedback.getAssignee(), "未分配"))
-      .createdAt(feedback.getCreatedAt())
-      .updatedAt(feedback.getUpdatedAt())
+  private Feedback mapFeedbackFromWorkorder(WorkOrder fd) {
+    return Feedback.builder()
+      .id(fd.getId())
+      .code(fd.getCode())
+      .title(fd.getTitle())
+      .description(fd.getDescription())
+      .status(fd.getStatus())
+      // .assignee(defaultString(fd.getAssignee(), "未分配"))
+      .ownerUsername(fd.getOwnerUsername())
+      .accountName(fd.getAccountName())
+      .images(fd.getImages())
+      .attachments(fd.getAttachments())
+      .createdAt(fd.getCreatedAt())
+      .updatedAt(fd.getUpdatedAt())
+      .replies(fd.getReplies())
       .build();
   }
 

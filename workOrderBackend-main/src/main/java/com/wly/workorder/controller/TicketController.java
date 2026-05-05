@@ -2,13 +2,7 @@ package com.wly.workorder.controller;
 
 import com.wly.workorder.common.ApiResponse;
 import com.wly.workorder.common.PageResult;
-import com.wly.workorder.model.TicketModels.CreateFeedbackRequest;
-import com.wly.workorder.model.TicketModels.Feedback;
-import com.wly.workorder.model.TicketModels.ReplyFeedbackRequest;
-import com.wly.workorder.model.TicketModels.TicketStatus;
-import com.wly.workorder.model.TicketModels.UpdateWorkOrderStatusRequest;
-import com.wly.workorder.model.TicketModels.WorkOrder;
-import com.wly.workorder.model.TicketModels.WorkOrderSummary;
+import com.wly.workorder.model.TicketModels.*;
 import com.wly.workorder.service.TicketService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -50,9 +44,9 @@ public class TicketController {
   }
 
   @GetMapping("/work-order/{id}")
-  public ApiResponse<Feedback> workOrderDetail(@PathVariable String id) {
-    Feedback feedback = ticketService.getFeedbackById(id);
-    return feedback == null ? ApiResponse.fail("work order not found") : ApiResponse.success(feedback);
+  public ApiResponse<WorkOrder> workOrderDetail(@PathVariable String id) {
+    WorkOrder workorder = ticketService.queryWorkOrderById(id);
+    return workorder == null ? ApiResponse.fail("work order not found") : ApiResponse.success(workorder);
   }
 
   @PostMapping("/feedback")
@@ -69,8 +63,8 @@ public class TicketController {
   @GetMapping("/work-order/page")
   public ApiResponse<PageResult<WorkOrder>> pageWorkOrders(
     @RequestParam(required = false) String keyword,
-    @RequestParam(required = false) String category,
-    @RequestParam(required = false) String priority,
+    @RequestParam(required = false) TicketCategory category,
+    @RequestParam(required = false) TicketPriority priority,
     @RequestParam(required = false) TicketStatus status,
     @RequestParam(defaultValue = "1") int pageNum,
     @RequestParam(defaultValue = "10") int pageSize

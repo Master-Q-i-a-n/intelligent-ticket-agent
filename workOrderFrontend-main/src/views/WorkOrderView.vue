@@ -35,11 +35,7 @@
         class="work-order-toolbar__filter"
         @change="handleSearch"
       >
-        <el-option label="技术故障" value="技术故障" />
-        <el-option label="产品咨询" value="产品咨询" />
-        <el-option label="功能需求" value="功能需求" />
-        <el-option label="投诉建议" value="投诉建议" />
-        <el-option label="账单问题" value="账单问题" />
+        <el-option v-for="item in TICKET_CATEGORY_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
       </el-select>
 
       <el-select
@@ -251,8 +247,67 @@
                     @click="handleRichTextClick"
                   ></div>
                   </div>
+              </div>
+            </div>
+
+            <div class="work-order-ai-analysis">
+              <div class="work-order-ai-analysis__header">
+                <div class="work-order-ai-analysis__header-title">
+                  <span class="work-order-ai-analysis__header-icon"></span>
+                  <span>AI 智能分析</span>
+                </div>
+                <el-button size="small" type="primary" class="work-order-ai-analysis__refresh">
+                  刷新分析
+                </el-button>
+              </div>
+
+              <div class="work-order-ai-analysis__grid">
+                <div class="work-order-ai-analysis__card">
+                  <div class="work-order-ai-analysis__card-title">
+                    <span class="work-order-ai-analysis__card-icon">📊</span>
+                    <span>AI 分类结果</span>
+                  </div>
+                  <div class="work-order-ai-analysis__card-body">
+                    <div class="work-order-ai-analysis__row">
+                      <span class="work-order-ai-analysis__label">类型</span>
+                      <span class="work-order-ai-analysis__tag work-order-ai-analysis__tag--blue">{{ selectedWorkOrder.category }}</span>
+                    </div>
+                    <div class="work-order-ai-analysis__row">
+                      <span class="work-order-ai-analysis__label">优先级</span>
+                      <span class="work-order-priority" :class="toPriorityMeta(selectedWorkOrder.priority).className">
+                        {{ toPriorityMeta(selectedWorkOrder.priority).label }}
+                      </span>
+                    </div>
+                    <div class="work-order-ai-analysis__row">
+                      <span class="work-order-ai-analysis__label">置信度</span>
+                      <span class="work-order-ai-analysis__tag work-order-ai-analysis__tag--green">自动分类</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="work-order-ai-analysis__card">
+                  <div class="work-order-ai-analysis__card-title">
+                    <span class="work-order-ai-analysis__card-icon">💬</span>
+                    <span>AI 情感分析</span>
+                  </div>
+                  <div class="work-order-ai-analysis__card-body">
+                    <div class="work-order-ai-analysis__row">
+                      <span class="work-order-ai-analysis__label">情绪</span>
+                      <span class="work-order-ai-analysis__tag work-order-ai-analysis__tag--blue">{{ selectedWorkOrder.emotion }}</span>
+                    </div>
+                    <div class="work-order-ai-analysis__row">
+                      <span class="work-order-ai-analysis__label">情绪得分</span>
+                    </div>
+                    <div class="work-order-ai-analysis__progress-row">
+                      <div class="work-order-ai-analysis__progress">
+                        <div class="work-order-ai-analysis__progress-bar" style="width: 50%; background: #67c23a;"></div>
+                      </div>
+                      <span class="work-order-ai-analysis__progress-value">50%</span>
+                    </div>
+                  </div>
                 </div>
               </div>
+            </div>
 
             <div v-if="canReplySelected" class="work-order-composer">
               <div class="work-order-detail__section-title">回复用户</div>
@@ -401,6 +456,7 @@ function normalizeWorkOrderRecord(item = {}) {
     description: item.description,
     category: item.category || '',
     priority: item.priority || 'MEDIUM',
+    emotion: item.emotion || '无',
     status: mapTicketStatus(item.status),
     assignee: item.assignee || '未分配',
     accountName: item.accountName || item.assignee || '未分配',
@@ -1148,6 +1204,137 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.work-order-ai-analysis {
+  margin: 20px 0;
+  background: #fff;
+  border: 1px solid #e8edf5;
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+
+.work-order-ai-analysis__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #f0f2f7;
+}
+
+.work-order-ai-analysis__header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+}
+
+.work-order-ai-analysis__header-icon {
+  font-size: 18px;
+}
+
+.work-order-ai-analysis__refresh {
+  border-radius: 8px;
+}
+
+.work-order-ai-analysis__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.work-order-ai-analysis__card {
+  background: #fafbfd;
+  border: 1px solid #eef1f6;
+  border-radius: 10px;
+  padding: 14px 18px;
+}
+
+.work-order-ai-analysis__card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e8ecf2;
+}
+
+.work-order-ai-analysis__card-icon {
+  font-size: 14px;
+}
+
+.work-order-ai-analysis__card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.work-order-ai-analysis__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.work-order-ai-analysis__label {
+  color: #8c95a6;
+  min-width: 60px;
+}
+
+.work-order-ai-analysis__tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.work-order-ai-analysis__tag--blue {
+  background: #e8f4fd;
+  color: #409eff;
+}
+
+.work-order-ai-analysis__tag--gray {
+  background: #f0f2f5;
+  color: #909399;
+}
+
+.work-order-ai-analysis__tag--green {
+  background: #e8f8e8;
+  color: #67c23a;
+}
+
+.work-order-ai-analysis__progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.work-order-ai-analysis__progress {
+  flex: 1;
+  height: 8px;
+  background: #ebeef5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.work-order-ai-analysis__progress-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.work-order-ai-analysis__progress-value {
+  font-size: 12px;
+  color: #909399;
+  min-width: 36px;
+  text-align: right;
 }
 
 :deep(.el-table th) {
