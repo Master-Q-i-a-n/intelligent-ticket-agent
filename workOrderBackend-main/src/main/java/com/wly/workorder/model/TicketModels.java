@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.util.HashMap;
+import java.util.Map;
 
 
 
@@ -23,10 +24,10 @@ public final class TicketModels {
   }
 
   public enum TicketPriority {
-    LOW,
-    MEDIUM,
-    HIGH,
-    URGENT,
+    低,
+    中,
+    高,
+    紧急,
     UNKNOWN
   }
 
@@ -37,7 +38,7 @@ public final class TicketModels {
     投诉建议,
     账单问题,
     其他,
-    未知
+    UNKNOWN
   }
 
   public enum TicketEmotion {
@@ -48,17 +49,15 @@ public final class TicketModels {
     困惑,
     满意,
     平静,
-    未知
+    UNKNOWN
   }
 
-  public static HashMap<String, String> priorityMap = new HashMap<>();
-
-  static {
-    priorityMap.put("LOW", "低");
-    priorityMap.put("MEDIUM", "中");
-    priorityMap.put("HIGH", "高");
-    priorityMap.put("URGENT", "紧急");
-  }
+  public static final HashMap<String, String> priorityMap = new HashMap<>(Map.of(
+      "LOW", "低",
+      "MEDIUM", "中",
+      "HIGH", "高",
+      "URGENT", "紧急"
+  ));
 
   @Data
   @Builder
@@ -127,22 +126,14 @@ public final class TicketModels {
     private List<FeedbackReply> replies;
   }
 
-  // @Data
-  // @Builder
-  // @NoArgsConstructor
-  // @AllArgsConstructor
-  // public static class WorkOrder {
-  //   private String id;
-  //   private String code;
-  //   private String title;
-  //   private String description;
-  //   private String category;
-  //   private String priority;
-  //   private TicketStatus status;
-  //   private String assignee;
-  //   private String createdAt;
-  //   private String updatedAt;
-  // }
+  @Data
+  @Builder
+  @NoArgsConstructor
+  @AllArgsConstructor
+  public static class AISuggestion {
+    private String suggestedReply;
+
+  }
 
   @Data
   @Builder

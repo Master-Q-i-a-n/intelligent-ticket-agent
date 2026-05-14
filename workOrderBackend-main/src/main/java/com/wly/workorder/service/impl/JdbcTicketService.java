@@ -1,11 +1,13 @@
 package com.wly.workorder.service.impl;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wly.workorder.auth.AuthContext;
 import com.wly.workorder.auth.AuthRole;
 import com.wly.workorder.auth.AuthSession;
 import com.wly.workorder.common.PageResult;
+import com.wly.workorder.config.WorkOrderAIProperties.AIService;
 import com.wly.workorder.model.TicketModels.*;
 import com.wly.workorder.service.TicketService;
 import java.time.LocalDateTime;
@@ -28,10 +30,12 @@ public class JdbcTicketService implements TicketService {
 
   private final JdbcTemplate jdbcTemplate;
   private final ObjectMapper objectMapper;
+  private final QueryAIService queryAIService;
 
-  public JdbcTicketService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+  public JdbcTicketService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper, QueryAIService queryAIService) {
     this.jdbcTemplate = jdbcTemplate;
     this.objectMapper = objectMapper;
+    this.queryAIService = queryAIService;
   }
 
   @Override
@@ -60,9 +64,9 @@ public class JdbcTicketService implements TicketService {
     String id = "fb-" + UUID.randomUUID().toString().substring(0, 8);
     String code = nextCode("FB-");
     String now = now();
-    TicketCategory category = TicketCategory.未知;
+    TicketCategory category = TicketCategory.UNKNOWN;
     TicketPriority priority = TicketPriority.UNKNOWN;
-    TicketEmotion emotion = TicketEmotion.未知;
+    TicketEmotion emotion = TicketEmotion.UNKNOWN;
     String imagesJson = writeJson(request.getImages() == null ? List.of() : request.getImages());
     String attachmentsJson = writeJson(request.getAttachments() == null ? List.of() : request.getAttachments());
 
@@ -71,6 +75,8 @@ public class JdbcTicketService implements TicketService {
       id, code, request.getTitle(), request.getDescription(), category.name(), priority.name(), emotion.name(), TicketStatus.PENDING.name(), session.getUsername(),
       defaultString(request.getAccountName(), session.getDisplayName()), "", imagesJson, attachmentsJson, now, now
     );
+
+    queryAIService.classifyTicketAsync(id, request.getTitle(), request.getDescription(), List.of());
 
     return getFeedbackById(id);
   }
@@ -256,6 +262,23 @@ public class JdbcTicketService implements TicketService {
       .filter(item -> Objects.equals(item.getId(), id))
       .collect(Collectors.toList());
     return items.isEmpty() ? null : items.get(0);
+  }
+
+  @Override
+  public AISuggestion getSuggestion(String id){
+    AuthSession session = AuthContext.require();
+    if (session.getRole() != AuthRole.ADMIN) {
+      throw new IllegalStateException("Only admin can get suggestion!");
+    }
+    WorkOrder wd = queryWorkOrderById(id);
+    JsonNode node = queryAIService.suggestReply(wd);
+
+    AISuggestion suggestion = AISuggestion.builder()
+    .suggestedReply(node.path("suggested_reply").asText())
+    .build();
+
+    return suggestion;
+    
   }
 
   private WorkOrder mapWorkOrder(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {

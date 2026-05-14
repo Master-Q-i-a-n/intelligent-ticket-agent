@@ -38,3 +38,10 @@ export function replyWorkOrder(id, data) {
     data
   })
 }
+
+export function getSuggestion(id){
+  return request({
+    url: `/work-order/${id}/suggest`,
+    method: 'get'
+  })
+}

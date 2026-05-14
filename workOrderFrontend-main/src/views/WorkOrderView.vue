@@ -310,7 +310,17 @@
             </div>
 
             <div v-if="canReplySelected" class="work-order-composer">
-              <div class="work-order-detail__section-title">回复用户</div>
+              <div class="work-order-composer__header">
+                <div class="work-order-detail__section-title">回复用户</div>
+                <el-button
+                  size="small"
+                  type="primary"
+                  :loading="aiReplyLoading"
+                  @click="generateAiReplySuggestion"
+                >
+                  AI 建议
+                </el-button>
+              </div>
               <cs-reply-quill
                 ref="replyEditor"
                 v-model="replyForm.content"
@@ -359,7 +369,8 @@ import {
   WarningFilled
 } from '@element-plus/icons-vue'
 import csReplyQuill from '../components/biz/csReplyQuill.vue'
-import { getWorkOrderDetail, getWorkOrderSummary, pageWorkOrders, replyWorkOrder, updateWorkOrderStatus } from '../api/workOrder'
+import request from '../api/http'
+import { getWorkOrderDetail, getWorkOrderSummary, pageWorkOrders, replyWorkOrder, updateWorkOrderStatus, getSuggestion } from '../api/workOrder'
 import { sessionState } from '../store/session'
 import {
   buildReplyHtml,
@@ -382,6 +393,7 @@ import {
 const loading = ref(false)
 const detailLoading = ref(false)
 const replyLoading = ref(false)
+const aiReplyLoading = ref(false)
 const workOrderList = ref([])
 const detailDialogVisible = ref(false)
 const selectedId = ref('')
@@ -653,6 +665,41 @@ function scrollRepliesToLatest() {
       container.scrollTop = container.scrollHeight
     }
   })
+}
+
+async function generateAiReplySuggestion() {
+  if (!selectedWorkOrder.value || !canReplySelected.value || aiReplyLoading.value) {
+    return
+  }
+
+  if (replyHasContent.value) {
+    try {
+      await ElMessageBox.confirm('当前回复框已有内容，是否用 AI 建议替换？', '替换确认', {
+        confirmButtonText: '替换',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+    } catch (error) {
+      return
+    }
+  }
+
+  aiReplyLoading.value = true
+  try {
+    const res = await getSuggestion(selectedWorkOrder.value.id)
+    const suggestion = res?.data?.suggestedReply
+    if (!suggestion) {
+      ElMessage.warning('AI 回复建议为空')
+      return
+    }
+
+    replyForm.content = buildReplyHtml(suggestion)
+    ElMessage.success('AI 回复建议已生成')
+  } catch (error) {
+    ElMessage.error(error.message || 'AI 回复建议生成失败')
+  } finally {
+    aiReplyLoading.value = false
+  }
 }
 
 async function submitReply() {
@@ -1101,6 +1148,13 @@ onMounted(async () => {
   border-top: 1px solid #edf1f7;
 }
 
+.work-order-composer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .work-order-composer__editor {
   margin-top: 14px;
 }
@@ -1383,6 +1437,7 @@ onMounted(async () => {
   }
 
   .work-order-toolbar,
+  .work-order-composer__header,
   .work-order-composer__actions {
     flex-direction: column;
     align-items: stretch;
@@ -1402,4 +1457,3 @@ onMounted(async () => {
   }
 }
 </style>
-

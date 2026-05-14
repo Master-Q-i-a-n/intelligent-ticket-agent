@@ -49,6 +49,12 @@ public class TicketController {
     return workorder == null ? ApiResponse.fail("work order not found") : ApiResponse.success(workorder);
   }
 
+  @GetMapping("/work-order/{id}/suggest")
+  public ApiResponse<AISuggestion> AIsuggestreply(@PathVariable String id){
+    AISuggestion suggestion = ticketService.getSuggestion(id);
+    return suggestion == null ? ApiResponse.fail("get AI suggestion failed!") : ApiResponse.success(suggestion);
+  }
+
   @PostMapping("/feedback")
   public ApiResponse<Feedback> createFeedback(@RequestBody @Valid CreateFeedbackRequest request) {
     return ApiResponse.success("created", ticketService.createFeedback(request));

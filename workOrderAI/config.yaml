@@ -1,0 +1,30 @@
+model:
+  chat_model: qwen-max
+  embedding_model: text-embedding-v4
+  reranker_model: qwen3-rerank
+
+router:
+  prefix: /ai
+
+MySQL:
+  host: localhost
+  port: 3306
+  user: root
+  password: "123456"
+  database: work_order
+
+FastAPI:
+  host: 0.0.0.0
+  port: 8003
+  log_level: info
+
+vector_store:
+  persist_directory: data/chroma_db
+  data_path: data
+  allow_knowledge_file_types: ["pdf", "docx", "txt"]
+  collection_name: rag_collection
+  chunk_size: 200
+  chunk_overlap: 20
+  k: 3
+  separators: ["\n\n", "\n", "。", "！", "？", "!", "?", " ", ""]
+  md5_hex_store: data/md5_hex_store/md5_hex_store.txt

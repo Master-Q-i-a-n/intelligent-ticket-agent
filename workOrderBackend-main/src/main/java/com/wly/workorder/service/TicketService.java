@@ -19,4 +19,6 @@ public interface TicketService {
   WorkOrder updateWorkOrderStatus(String id, UpdateWorkOrderStatusRequest request);
   
   WorkOrder queryWorkOrderById(String id);
+
+  AISuggestion getSuggestion(String id);
 }

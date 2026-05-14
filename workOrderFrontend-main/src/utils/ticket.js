@@ -22,40 +22,41 @@ export const TICKET_STATUS_META = {
 }
 
 export const TICKET_STATUS_OPTIONS = [
-  { label: '待处理', value: 'PENDING' },
-  { label: '处理中', value: 'PROCESSING' },
-  { label: '已解决', value: 'SOLVED' },
-  { label: '已关闭', value: 'CLOSED' }
+  { label: '待处理', value: '待处理' },
+  { label: '处理中', value: '处理中' },
+  { label: '已解决', value: '已解决' },
+  { label: '已关闭', value: '已关闭' }
 ]
 
 export const TICKET_PRIORITY_META = {
-  LOW: {
+  低: {
     label: '低',
     className: 'is-low'
   },
-  MEDIUM: {
+  中: {
     label: '中',
     className: 'is-medium'
   },
-  HIGH: {
+  高: {
     label: '高',
     className: 'is-high'
   },
-  URGENT: {
+  紧急: {
     label: '紧急',
     className: 'is-urgent'
   },
-  UNKNOWN: {
+  unknown: {
     label: '未知',
     className: 'is-low'
   }
 }
 
 export const TICKET_PRIORITY_OPTIONS = [
-  { label: '低', value: 'LOW' },
-  { label: '中', value: 'MEDIUM' },
-  { label: '高', value: 'HIGH' },
-  { label: '紧急', value: 'URGENT' }
+  { label: '低', value: '低' },
+  { label: '中', value: '中' },
+  { label: '高', value: '高' },
+  { label: '紧急', value: '紧急' },
+  { label: '未知', value: '未知' }
 ]
 
 export const TICKET_CATEGORY_OPTIONS = [
