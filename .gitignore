@@ -10,6 +10,7 @@ __pycache__/
 workOrderAI/data/
 workOrderAI/logs/
 workOrderAI/try.py
+workOrderAI/evals/results/
 
 # Build outputs
 workOrderBackend-main/target/

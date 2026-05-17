@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+import time
 import aiofiles
 from aiofiles import os as aio_os
 from workOrderAI.utils.logger_handler import logger
@@ -17,6 +18,11 @@ from langchain_core.documents import Document
 from workOrderAI.utils.file_handler import get_file_md5_hex, markdown_loader, pdf_loader, ppt_loader, txt_loader, word_loader
 
 class VectorStoreService:
+    _cached_vector_retriever = None
+    _cached_bm25_retriever = None
+    _retriever_cache_initialized = False
+    _retriever_cache_lock = asyncio.Lock()
+
     def __init__(self):
         persist_dir = get_abs_path(config['vector_store']['persist_directory'])
         # 使用同步 Chroma, 在调用时用 to_thread 包裹
@@ -34,6 +40,10 @@ class VectorStoreService:
         )
 
     async def get_bm25_retriever(self) -> BM25Retriever:
+        _, bm25_retriever = await self._get_cached_base_retrievers()
+        return bm25_retriever
+
+    async def _build_bm25_retriever(self) -> BM25Retriever:
         """
         获取BM25检索器
         """
@@ -59,19 +69,42 @@ class VectorStoreService:
         else:
             return None
 
+    async def _get_cached_base_retrievers(self):
+        cls = type(self)
+        if cls._retriever_cache_initialized:
+            return cls._cached_vector_retriever, cls._cached_bm25_retriever
+
+        async with cls._retriever_cache_lock:
+            if not cls._retriever_cache_initialized:
+                started_at = time.perf_counter()
+                cls._cached_vector_retriever = self.vectors_store.as_retriever(
+                    search_type='similarity',
+                    search_kwargs={'k': config['vector_store']['k']},
+                )
+                cls._cached_bm25_retriever = await self._build_bm25_retriever()
+                cls._retriever_cache_initialized = True
+                elapsed = time.perf_counter() - started_at
+                logger.info(
+                    f"【retriever-cache】基础检索器构建完成，耗时: {elapsed:.2f}秒，"
+                    f"bm25={'yes' if cls._cached_bm25_retriever else 'no'}"
+                )
+        return cls._cached_vector_retriever, cls._cached_bm25_retriever
+
+    @classmethod
+    async def invalidate_retriever_cache(cls):
+        async with cls._retriever_cache_lock:
+            cls._cached_vector_retriever = None
+            cls._cached_bm25_retriever = None
+            cls._retriever_cache_initialized = False
+        logger.info("【retriever-cache】缓存已失效")
+
     async def get_retriever(self, query: str = None):
         """
         获取混合检索器（BM25 + 向量检索）
         :param query: 查询语句，用于动态调整权重
         :return: EnsembleRetriever实例或单独的向量检索器
         """
-        # 创建向量检索器
-        vector_retriever = self.vectors_store.as_retriever(
-            search_type='similarity',
-            search_kwargs={'k': config['vector_store']['k']},
-        )
-        # 创建BM25检索器
-        bm25_retriever = await self.get_bm25_retriever()
+        vector_retriever, bm25_retriever = await self._get_cached_base_retrievers()
         
         # 根据是否有BM25检索器决定返回哪种检索器
         if bm25_retriever:

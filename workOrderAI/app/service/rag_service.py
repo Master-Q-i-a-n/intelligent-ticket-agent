@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from langchain_core import runnables
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
@@ -12,6 +13,9 @@ from workOrderAI.utils.logger_handler import logger
 from workOrderAI.utils.prompt_builder import HYDE_PROMPT_PRE, STATEMENT_HYDE_PROMPT, QUESTION_HYDE_PROMPT, RAG_SUMMARIZE_PROMPT
 
 
+HYDE_MAX_TOKENS = 200
+KNOWLEDGE_NO_ANSWER_SUMMARY = "抱歉，当前知识库中没有相关信息，建议咨询人工客服。"
+
 
 class RagService:
     def __init__(self):
@@ -20,13 +24,20 @@ class RagService:
         self.prompt_text = RAG_SUMMARIZE_PROMPT
         self.prompt_template = PromptTemplate.from_template(self.prompt_text)
         self.chat_model = chat_model
+        self.hyde_model = self.chat_model.bind(max_tokens=HYDE_MAX_TOKENS)
         self.chain = self._init_chain(self.prompt_template)
         self.hyde_pre_prompt_template = PromptTemplate.from_template(HYDE_PROMPT_PRE)
         self.question_hyde_prompt_template = PromptTemplate.from_template(QUESTION_HYDE_PROMPT)
         self.statement_hyde_prompt_template = PromptTemplate.from_template(STATEMENT_HYDE_PROMPT)
         self.hyde_pre_chain = self._init_chain(self.hyde_pre_prompt_template)
-        self.question_hyde_chain = self._init_chain(self.question_hyde_prompt_template)
-        self.statement_hyde_chain = self._init_chain(self.statement_hyde_prompt_template)
+        self.question_hyde_chain = self._init_chain(
+            self.question_hyde_prompt_template,
+            model=self.hyde_model,
+        )
+        self.statement_hyde_chain = self._init_chain(
+            self.statement_hyde_prompt_template,
+            model=self.hyde_model,
+        )
 
     async def hyde_pre(self, query: str) -> str:
         """
@@ -63,11 +74,11 @@ class RagService:
             self.retriever = await self.vector_store.get_retriever(query)
 
 
-    def _init_chain(self, prompt_template: PromptTemplate):
+    def _init_chain(self, prompt_template: PromptTemplate, model=None):
         """初始化链"""
         chain = (
                 prompt_template
-                | self.chat_model
+                | (model or self.chat_model)
                 | StrOutputParser()
         )
         return chain
@@ -115,6 +126,21 @@ class RagService:
             logger.error(f"【retrieve】检索文档失败: {e}")
             return []
 
+    async def retrieve_direct_documents(self, query: str, limit: int | None = None) -> list:
+        """直接使用原始 query 检索文档，供轻量 RAG 路径使用。"""
+        started_at = time.perf_counter()
+        try:
+            retriever = await self.vector_store.get_retriever(query)
+            documents = await retriever.ainvoke(query)
+            if limit is not None:
+                documents = documents[:limit]
+            elapsed = time.perf_counter() - started_at
+            logger.info(f"【RAG-light】直接检索完成，命中 {len(documents)} 个文档，耗时: {elapsed:.2f}秒")
+            return documents
+        except Exception as e:
+            logger.error(f"【RAG-light】直接检索失败: {e}", exc_info=True)
+            return []
+
     @traceable
     async def reorder_documents(self, query: str, documents: list) -> list:
         """
@@ -156,8 +182,8 @@ class RagService:
                 return {
                     "documents": [],
                     "source_documents": [],
-                    "summary": "您好，请描述您遇到的扫地机故障，我会尽力帮您解决。"
-            }
+                    "summary": KNOWLEDGE_NO_ANSWER_SUMMARY,
+                }
 
             # 对文档进行重排序
             # reordered_documents = await self.reorder_documents(query, document_contents)
@@ -255,6 +281,33 @@ class RagService:
         """RAG 摘要"""
         result = await self.get_documents_and_summary(query)
         return result.get("summary", "抱歉，处理您的请求时出现了错误。")
+
+    @traceable
+    async def rag_summary_for_suggestion(self, query: str) -> str:
+        """回复建议专用的轻量 RAG 摘要路径。"""
+        documents = await self.retrieve_direct_documents(query, limit=2)
+        if not documents:
+            return "抱歉，我没有找到相关的信息。"
+
+        context = "".join(
+            f"【参考资料{i}】:{doc.page_content}\n"
+            for i, doc in enumerate(documents, 1)
+        )
+        started_at = time.perf_counter()
+        try:
+            summary = await asyncio.wait_for(
+                self.chain.ainvoke({"input": query, "context": context}),
+                timeout=30.0,
+            )
+            elapsed = time.perf_counter() - started_at
+            logger.info(f"【RAG-light】轻量总结完成，耗时: {elapsed:.2f}秒")
+            return summary
+        except asyncio.TimeoutError:
+            logger.error("【RAG-light】轻量总结超时")
+            return "抱歉，生成摘要超时，请稍后再试。"
+        except Exception as e:
+            logger.error(f"【RAG-light】轻量总结失败: {e}", exc_info=True)
+            return "抱歉，处理您的请求时出现了错误。"
 
     async def rag_qa(self, query: str) -> dict:
         """RAG 问答，返回答案和引用来源。"""

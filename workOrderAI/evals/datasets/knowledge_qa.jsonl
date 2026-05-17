@@ -1,0 +1,15 @@
+{"id":"qa-001","input":{"question":"扫地机器人死机常见原因有哪些？"},"expected":{"answer_contains":["死机"],"expected_sources":["故障排除"]},"tags":["fault"]}
+{"id":"qa-002","input":{"question":"滤网应该多久清理一次？"},"expected":{"answer_contains":["滤网"],"expected_sources":["维护保养"]},"tags":["maintenance"]}
+{"id":"qa-003","input":{"question":"小户型适合选什么类型的扫地机器人？"},"expected":{"answer_contains":["小户型"],"expected_sources":["选购指南"]},"tags":["purchase"]}
+{"id":"qa-004","input":{"question":"拖地后地面有水痕，可能是什么原因？"},"expected":{"answer_contains":["水痕"],"expected_sources":["扫拖一体机器人100问"]},"tags":["mop"]}
+{"id":"qa-005","input":{"question":"主刷被毛发缠住应该怎么处理？"},"expected":{"answer_contains":["主刷"],"expected_sources":["维护保养","故障排除"]},"tags":["maintenance","fault"]}
+{"id":"qa-006","input":{"question":"扫地机器人能不能在地毯上使用？"},"expected":{"answer_contains":["地毯"],"expected_sources":["扫地机器人100问","扫地机器人100问2"]},"tags":["faq"]}
+{"id":"qa-007","input":{"question":"如何清洁水箱？"},"expected":{"answer_contains":["水箱"],"expected_sources":["洗涤养护","维护保养"]},"tags":["maintenance"]}
+{"id":"qa-008","input":{"question":"机器人回充失败先检查什么？"},"expected":{"answer_contains":["回充"],"expected_sources":["故障排除"]},"tags":["fault"]}
+{"id":"qa-009","input":{"question":"边刷磨损后有什么影响？"},"expected":{"answer_contains":["边刷"],"expected_sources":["维护保养"]},"tags":["maintenance"]}
+{"id":"qa-010","input":{"question":"购买扫拖一体机要关注哪些参数？"},"expected":{"answer_contains":["扫拖"],"expected_sources":["选购指南"]},"tags":["purchase"]}
+{"id":"qa-011","input":{"question":"你们公司老板是谁？"},"expected":{"answer_contains":["没有相关信息"],"expected_sources":[],"should_refuse":true},"tags":["no-answer"]}
+{"id":"qa-012","input":{"question":"明天上海天气怎么样？"},"expected":{"answer_contains":["没有相关信息"],"expected_sources":[],"should_refuse":true},"tags":["no-answer"]}
+{"id":"qa-013","input":{"question":"扫地机器人为什么会漏扫？"},"expected":{"answer_contains":["漏扫"],"expected_sources":["故障排除","扫地机器人100问"]},"tags":["fault"]}
+{"id":"qa-014","input":{"question":"尘盒多久清理一次比较合适？"},"expected":{"answer_contains":["尘盒"],"expected_sources":["维护保养"]},"tags":["maintenance"]}
+{"id":"qa-015","input":{"question":"如何判断电池需要更换？"},"expected":{"answer_contains":["电池"],"expected_sources":["维护保养","故障排除"]},"tags":["maintenance","fault"]}

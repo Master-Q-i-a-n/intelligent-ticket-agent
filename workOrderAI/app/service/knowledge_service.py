@@ -110,6 +110,7 @@ class KnowledgeService:
         finally:
             conn.close()
 
+        await self.vector_store.invalidate_retriever_cache()
         return {
             "id": document_id,
             "title": Path(safe_file_name).stem,
@@ -138,6 +139,7 @@ class KnowledgeService:
             conn.commit()
         finally:
             conn.close()
+        await self.vector_store.invalidate_retriever_cache()
         return True
 
     def _ensure_table(self):

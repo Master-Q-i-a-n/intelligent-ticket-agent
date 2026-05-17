@@ -1,5 +1,6 @@
 model:
   chat_model: qwen3-max
+  judge_model: qwen3-next-80b-a3b-instruct
   embedding_model: text-embedding-v4
   reranker_model: qwen3-rerank
 
