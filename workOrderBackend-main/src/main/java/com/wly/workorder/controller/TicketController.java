@@ -72,10 +72,11 @@ public class TicketController {
     @RequestParam(required = false) TicketCategory category,
     @RequestParam(required = false) TicketPriority priority,
     @RequestParam(required = false) TicketStatus status,
+    @RequestParam(required = false) ServiceGroup serviceGroup,
     @RequestParam(defaultValue = "1") int pageNum,
     @RequestParam(defaultValue = "10") int pageSize
   ) {
-    return ApiResponse.success(ticketService.pageWorkOrders(keyword, category, priority, status, pageNum, pageSize));
+    return ApiResponse.success(ticketService.pageWorkOrders(keyword, category, priority, status, serviceGroup, pageNum, pageSize));
   }
 
   @GetMapping("/work-order/summary")

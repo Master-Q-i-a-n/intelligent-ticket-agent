@@ -68,6 +68,23 @@ export const TICKET_CATEGORY_OPTIONS = [
   { label: '其他', value: '其他' }
 ]
 
+export const TICKET_SERVICE_GROUP_META = {
+  TECH_SUPPORT: {
+    label: '技术支持组'
+  },
+  PRODUCT_CONSULTING: {
+    label: '产品咨询组'
+  },
+  BILLING_SERVICE: {
+    label: '财务客服组'
+  }
+}
+
+export const TICKET_SERVICE_GROUP_OPTIONS = Object.entries(TICKET_SERVICE_GROUP_META).map(([value, item]) => ({
+  label: item.label,
+  value
+}))
+
 export function createUid(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`
 }
@@ -205,4 +222,8 @@ export function getReplyRoleLabel(role) {
 
 export function toPriorityMeta(priority) {
   return TICKET_PRIORITY_META[priority] || TICKET_PRIORITY_META.UNKNOWN
+}
+
+export function toServiceGroupMeta(serviceGroup) {
+  return TICKET_SERVICE_GROUP_META[serviceGroup] || TICKET_SERVICE_GROUP_META.PRODUCT_CONSULTING
 }

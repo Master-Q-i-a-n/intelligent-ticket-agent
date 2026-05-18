@@ -41,7 +41,7 @@ public class JdbcTicketService implements TicketService {
   @Override
   public PageResult<Feedback> pageFeedback(String keyword, TicketStatus status, int pageNum, int pageSize) {
     AuthSession session = AuthContext.require();
-    List<Feedback> items = queryWorkOrders(session, keyword, null, null, status).stream()
+    List<Feedback> items = queryWorkOrders(session, keyword, null, null, status, null).stream()
       .map(this::mapFeedbackFromWorkorder)
       .collect(Collectors.toList());  
     return page(items, pageNum, pageSize);
@@ -50,7 +50,7 @@ public class JdbcTicketService implements TicketService {
   @Override
   public Feedback getFeedbackById(String id) {
     AuthSession session = AuthContext.require();
-    List<Feedback> items = queryWorkOrders(session, null, null, null, null).stream()
+    List<Feedback> items = queryWorkOrders(session, null, null, null, null, null).stream()
       .map(this::mapFeedbackFromWorkorder)
       .filter(item -> Objects.equals(item.getId(), id))
       .collect(Collectors.toList());
@@ -71,8 +71,8 @@ public class JdbcTicketService implements TicketService {
     String attachmentsJson = writeJson(request.getAttachments() == null ? List.of() : request.getAttachments());
 
     jdbcTemplate.update(
-      "insert into wo_feedback (id, code, title, description, category, priority, emotion, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      id, code, request.getTitle(), request.getDescription(), category.name(), priority.name(), emotion.name(), TicketStatus.PENDING.name(), session.getUsername(),
+      "insert into wo_feedback (id, code, title, description, category, priority, emotion, status, service_group, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      id, code, request.getTitle(), request.getDescription(), category.name(), priority.name(), emotion.name(), TicketStatus.PENDING.name(), ServiceGroup.PRODUCT_CONSULTING.name(), session.getUsername(),
       defaultString(request.getAccountName(), session.getDisplayName()), "", imagesJson, attachmentsJson, now, now
     );
 
@@ -135,12 +135,12 @@ public class JdbcTicketService implements TicketService {
   }
 
   @Override
-  public PageResult<WorkOrder> pageWorkOrders(String keyword, TicketCategory category, TicketPriority priority, TicketStatus status, int pageNum, int pageSize) {
+  public PageResult<WorkOrder> pageWorkOrders(String keyword, TicketCategory category, TicketPriority priority, TicketStatus status, ServiceGroup serviceGroup, int pageNum, int pageSize) {
     AuthSession session = AuthContext.require();
     if (session.getRole() != AuthRole.ADMIN) {
       throw new IllegalStateException("Only admin can access work orders");
     }
-    List<WorkOrder> items = queryWorkOrders(session, keyword, category, priority, status);
+    List<WorkOrder> items = queryWorkOrders(session, keyword, category, priority, status, serviceGroup);
     return page(items, pageNum, pageSize);
   }
 
@@ -151,7 +151,7 @@ public class JdbcTicketService implements TicketService {
       throw new IllegalStateException("Only admin can access work order summary");
     }
 
-    List<WorkOrder> items = queryWorkOrders(session, keyword, null, null, status);
+    List<WorkOrder> items = queryWorkOrders(session, keyword, null, null, status, null);
     long pending = items.stream().filter(item -> item.getStatus() == TicketStatus.PENDING).count();
     long processing = items.stream().filter(item -> item.getStatus() == TicketStatus.PROCESSING).count();
     long solved = items.stream().filter(item -> item.getStatus() == TicketStatus.SOLVED).count();
@@ -197,9 +197,9 @@ public class JdbcTicketService implements TicketService {
     return updatedWorkOrder;
   }
 
-  private List<WorkOrder> queryWorkOrders(AuthSession session, String keyword, TicketCategory category, TicketPriority priority, TicketStatus status) {
+  private List<WorkOrder> queryWorkOrders(AuthSession session, String keyword, TicketCategory category, TicketPriority priority, TicketStatus status, ServiceGroup serviceGroup) {
     StringBuilder sql = new StringBuilder(
-      "select id, code, title, description, category, priority, emotion, status, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at " +
+      "select id, code, title, description, category, priority, emotion, status, service_group, owner_username, account_name, assignee, images_json, attachments_json, created_at, updated_at " +
         "from wo_feedback where 1=1"
     );
     List<Object> args = new ArrayList<>();
@@ -218,6 +218,10 @@ public class JdbcTicketService implements TicketService {
     if (priority != null) {
       sql.append(" and priority = ?");
       args.add(priority.name());
+    }
+    if (serviceGroup != null) {
+      sql.append(" and service_group = ?");
+      args.add(serviceGroup.name());
     }
     if (keyword != null && !keyword.isBlank()) {
       sql.append(" and (lower(code) like ? or lower(title) like ? or lower(description) like ? or lower(account_name) like ? or lower(assignee) like ? or lower(category) like ?)");
@@ -276,7 +280,7 @@ public class JdbcTicketService implements TicketService {
   @Override
   public WorkOrder queryWorkOrderById(String id) {
     AuthSession session = AuthContext.require();
-    List<WorkOrder> items = queryWorkOrders(session, null, null, null, null).stream()
+    List<WorkOrder> items = queryWorkOrders(session, null, null, null, null, null).stream()
       .filter(item -> Objects.equals(item.getId(), id))
       .collect(Collectors.toList());
     return items.isEmpty() ? null : items.get(0);
@@ -339,6 +343,7 @@ public class JdbcTicketService implements TicketService {
       .priority(TicketPriority.valueOf(rs.getString("priority")))
       .emotion(TicketEmotion.valueOf(rs.getString("emotion")))
       .status(TicketStatus.valueOf(rs.getString("status")))
+      .serviceGroup(ServiceGroup.valueOf(rs.getString("service_group")))
       .ownerUsername(rs.getString("owner_username"))
       .accountName(rs.getString("account_name"))
       .assignee(rs.getString("assignee"))

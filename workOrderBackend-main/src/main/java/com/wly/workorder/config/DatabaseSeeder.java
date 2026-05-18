@@ -1,6 +1,8 @@
 package com.wly.workorder.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wly.workorder.model.TicketModels.ServiceGroup;
+import com.wly.workorder.model.TicketModels.TicketCategory;
 import com.wly.workorder.model.TicketModels.TicketEmotion;
 import com.wly.workorder.model.TicketModels.TicketPriority;
 import com.wly.workorder.model.TicketModels.TicketStatus;
@@ -33,9 +35,11 @@ public class DatabaseSeeder implements CommandLineRunner {
   public void run(String... args) throws Exception {
     ensureAssigneeColumn();
     ensureAvatarColumn();
+    ensureUserServiceGroupColumn();
     ensureCategoryColumn();
     ensurePriorityColumn();
     ensureEmotionColumn();
+    ensureServiceGroupColumn();
     ensureKnowledgeDocumentTable();
     ensureCaseMemoryTable();
 
@@ -43,22 +47,25 @@ public class DatabaseSeeder implements CommandLineRunner {
     if (userCount == null || userCount == 0) {
       seedUsers();
     }
+    backfillUserServiceGroups();
 
     Integer feedbackCount = jdbcTemplate.queryForObject("select count(*) from wo_feedback", Integer.class);
     if (feedbackCount == null || feedbackCount == 0) {
       seedFeedbacks();
     }
+
+    backfillServiceGroups();
   }
 
   private void seedUsers() {
     String now = now();
     jdbcTemplate.update(
-      "insert ignore into wo_user (id, username, password, display_name, avatar_url, role, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-      "user-1", "user", "user123", "普通用户", "", "USER", now, now
+      "insert ignore into wo_user (id, username, password, display_name, avatar_url, role, service_group, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "user-1", "user", "user123", "普通用户", "", "USER", "", now, now
     );
     jdbcTemplate.update(
-      "insert ignore into wo_user (id, username, password, display_name, avatar_url, role, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
-      "admin-1", "admin", "admin123", "系统管理员", "", "ADMIN", now, now
+      "insert ignore into wo_user (id, username, password, display_name, avatar_url, role, service_group, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "admin-1", "admin", "admin123", "系统管理员", "", "ADMIN", ServiceGroup.PRODUCT_CONSULTING.name(), now, now
     );
   }
 
@@ -225,6 +232,59 @@ public class DatabaseSeeder implements CommandLineRunner {
         updated_at varchar(19) not null
       )
       """
+    );
+  }
+
+  private void ensureUserServiceGroupColumn() {
+    jdbcTemplate.execute((Connection connection) -> {
+      DatabaseMetaData metaData = connection.getMetaData();
+      try (ResultSet columns = metaData.getColumns(connection.getCatalog(), null, "wo_user", "service_group")) {
+        if (columns.next()) {
+          return null;
+        }
+      }
+      try (Statement statement = connection.createStatement()) {
+        statement.execute("alter table wo_user add column service_group varchar(32) not null default ''");
+      }
+      return null;
+    });
+  }
+
+  private void backfillUserServiceGroups() {
+    jdbcTemplate.update(
+      "update wo_user set service_group = ? where role = 'ADMIN' and (service_group is null or service_group = '')",
+      ServiceGroup.PRODUCT_CONSULTING.name()
+    );
+  }
+
+  private void ensureServiceGroupColumn() {
+    jdbcTemplate.execute((Connection connection) -> {
+      DatabaseMetaData metaData = connection.getMetaData();
+      try (ResultSet columns = metaData.getColumns(connection.getCatalog(), null, "wo_feedback", "service_group")) {
+        if (columns.next()) {
+          return null;
+        }
+      }
+      try (Statement statement = connection.createStatement()) {
+        statement.execute("alter table wo_feedback add column service_group varchar(32) not null default 'PRODUCT_CONSULTING'");
+      }
+      return null;
+    });
+  }
+
+  private void backfillServiceGroups() {
+    jdbcTemplate.update(
+      """
+      update wo_feedback
+      set service_group = case
+        when category = ? then ?
+        when category = ? then ?
+        else ?
+      end
+      """,
+      TicketCategory.技术故障.name(), ServiceGroup.TECH_SUPPORT.name(),
+      TicketCategory.账单问题.name(), ServiceGroup.BILLING_SERVICE.name(),
+      ServiceGroup.PRODUCT_CONSULTING.name()
     );
   }
 

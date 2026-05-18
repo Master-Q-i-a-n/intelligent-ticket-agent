@@ -58,6 +58,11 @@
             <el-option label="管理员" value="ADMIN" />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="registerForm.role === 'ADMIN'" label="客服组" required>
+          <el-select v-model="registerForm.serviceGroup" class="register-form__role">
+            <el-option v-for="item in TICKET_SERVICE_GROUP_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
       </el-form>
 
       <template #footer>
@@ -76,6 +81,7 @@ import { ElMessage } from 'element-plus'
 import { getDemoAccount, login, register } from '../api/auth'
 import { setSession } from '../store/session'
 import { getDefaultRouteByRole } from '../utils/auth'
+import { TICKET_SERVICE_GROUP_OPTIONS } from '../utils/ticket'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -93,7 +99,8 @@ const registerForm = reactive({
   confirmPassword: '',
   displayName: '',
   avatarUrl: '',
-  role: 'USER'
+  role: 'USER',
+  serviceGroup: 'PRODUCT_CONSULTING'
 })
 
 async function fillUser() {
@@ -133,6 +140,10 @@ function validateRegisterForm() {
     ElMessage.warning('请选择账号角色')
     return false
   }
+  if (registerForm.role === 'ADMIN' && !TICKET_SERVICE_GROUP_OPTIONS.some(item => item.value === registerForm.serviceGroup)) {
+    ElMessage.warning('请选择客服组')
+    return false
+  }
   return true
 }
 
@@ -148,7 +159,8 @@ async function submitRegister() {
       password: registerForm.password,
       displayName: registerForm.displayName,
       avatarUrl: registerForm.avatarUrl,
-      role: registerForm.role
+      role: registerForm.role,
+      serviceGroup: registerForm.role === 'ADMIN' ? registerForm.serviceGroup : undefined
     })
     setSession(res.data)
     ElMessage.success('注册成功')

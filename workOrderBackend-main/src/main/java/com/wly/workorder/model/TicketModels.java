@@ -52,6 +52,12 @@ public final class TicketModels {
     UNKNOWN
   }
 
+  public enum ServiceGroup {
+    TECH_SUPPORT,
+    PRODUCT_CONSULTING,
+    BILLING_SERVICE
+  }
+
   public static final HashMap<String, String> priorityMap = new HashMap<>(Map.of(
       "LOW", "低",
       "MEDIUM", "中",
@@ -94,6 +100,7 @@ public final class TicketModels {
     private TicketPriority priority;
     private TicketEmotion emotion;
     private TicketStatus status;
+    private ServiceGroup serviceGroup;
     private String ownerUsername;
     private String accountName;
     private String assignee;

@@ -49,6 +49,16 @@
       </el-select>
 
       <el-select
+        v-model="queryForm.serviceGroup"
+        clearable
+        placeholder="全部客服组"
+        class="work-order-toolbar__filter"
+        @change="handleSearch"
+      >
+        <el-option v-for="item in TICKET_SERVICE_GROUP_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+      </el-select>
+
+      <el-select
         v-model="queryForm.status"
         clearable
         placeholder="全部状态"
@@ -69,7 +79,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="code" label="编号" width="120" />
-        <el-table-column prop="title" label="标题" min-width="240" show-overflow-tooltip>
+        <el-table-column prop="title" label="标题" width="150" show-overflow-tooltip>
           <template #default="{ row }">
             <div class="work-order-table__title">{{ row.title }}</div>
           </template>
@@ -78,6 +88,11 @@
         <el-table-column label="分类" width="120">
           <template #default="{ row }">
             <span class="work-order-category">{{ row.category || '--' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="客服组" width="130">
+          <template #default="{ row }">
+            <span class="work-order-category">{{ toServiceGroupMeta(row.serviceGroup).label }}</span>
           </template>
         </el-table-column>
         <el-table-column label="优先级" width="100">
@@ -279,6 +294,10 @@
                       <span class="work-order-ai-analysis__tag work-order-ai-analysis__tag--blue">{{ selectedWorkOrder.category }}</span>
                     </div>
                     <div class="work-order-ai-analysis__row">
+                      <span class="work-order-ai-analysis__label">客服组</span>
+                      <span class="work-order-ai-analysis__tag work-order-ai-analysis__tag--blue">{{ toServiceGroupMeta(selectedWorkOrder.serviceGroup).label }}</span>
+                    </div>
+                    <div class="work-order-ai-analysis__row">
                       <span class="work-order-ai-analysis__label">优先级</span>
                       <span class="work-order-priority" :class="toPriorityMeta(selectedWorkOrder.priority).className">
                         {{ toPriorityMeta(selectedWorkOrder.priority).label }}
@@ -415,8 +434,10 @@ import {
   TICKET_STATUS_OPTIONS,
   TICKET_PRIORITY_OPTIONS,
   TICKET_CATEGORY_OPTIONS,
+  TICKET_SERVICE_GROUP_OPTIONS,
   toStatusMeta,
-  toPriorityMeta
+  toPriorityMeta,
+  toServiceGroupMeta
 } from '../utils/ticket'
 
 const loading = ref(false)
@@ -435,7 +456,7 @@ const replyHasContent = ref(false)
 const replyHistory = ref(null)
 const replyForm = reactive({ content: '' })
 const page = reactive({ pageNum: 1, pageSize: 20, total: 0 })
-const queryForm = reactive({ keyword: '', category: '', priority: '', status: '' })
+const queryForm = reactive({ keyword: '', category: '', priority: '', serviceGroup: '', status: '' })
 const summary = reactive({ total: 0, pending: 0, processing: 0, solved: 0, closed: 0 })
 
 const selectedWorkOrder = computed(() => selectedDetail.value || workOrderList.value.find(item => item.id === selectedId.value) || null)
@@ -498,6 +519,7 @@ function normalizeWorkOrderRecord(item = {}) {
     title: item.title,
     description: item.description,
     category: item.category || '',
+    serviceGroup: item.serviceGroup || 'PRODUCT_CONSULTING',
     priority: item.priority || 'MEDIUM',
     emotion: item.emotion || '无',
     status: mapTicketStatus(item.status),
@@ -526,6 +548,7 @@ async function loadWorkOrders() {
       keyword: queryForm.keyword || undefined,
       category: queryForm.category || undefined,
       priority: queryForm.priority || undefined,
+      serviceGroup: queryForm.serviceGroup || undefined,
       status: queryForm.status || undefined,
       pageNum: page.pageNum,
       pageSize: page.pageSize
@@ -926,6 +949,11 @@ onMounted(async () => {
 }
 
 .work-order-table__title {
+  display: block;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #17325f;
   font-weight: 500;
 }

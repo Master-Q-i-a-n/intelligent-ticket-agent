@@ -16,6 +16,14 @@ from workOrderAI.app.model.database import get_db_connection
 
 api = APIRouter(prefix=config['router']['prefix'], tags=['classify'])
 
+
+def _route_service_group(problem_type: str) -> str:
+    if problem_type == "技术故障":
+        return "TECH_SUPPORT"
+    if problem_type == "账单问题":
+        return "BILLING_SERVICE"
+    return "PRODUCT_CONSULTING"
+
 @api.post('/classify', response_model=ClassifyResponse)
 def classify_work_order(request: ClassifyRequest):
     """
@@ -60,9 +68,10 @@ def classify_work_order(request: ClassifyRequest):
                 f"current_category={current_category or '<empty>'}, should_update_category={should_update_category}"
             )
             if should_update_category:
+                service_group = _route_service_group(problem_type)
                 cursor.execute(
-                    "UPDATE wo_feedback SET category = %s, priority = %s, emotion = %s WHERE id = %s",
-                    (problem_type, priority, user_sentiment, request_id),
+                    "UPDATE wo_feedback SET category = %s, priority = %s, emotion = %s, service_group = %s WHERE id = %s",
+                    (problem_type, priority, user_sentiment, service_group, request_id),
                 )
             else:
                 cursor.execute(

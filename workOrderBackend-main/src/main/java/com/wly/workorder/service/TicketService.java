@@ -12,7 +12,7 @@ public interface TicketService {
 
   Feedback replyFeedback(String id, ReplyFeedbackRequest request);
 
-  PageResult<WorkOrder> pageWorkOrders(String keyword, TicketCategory category, TicketPriority priority, TicketStatus status, int pageNum, int pageSize);
+  PageResult<WorkOrder> pageWorkOrders(String keyword, TicketCategory category, TicketPriority priority, TicketStatus status, ServiceGroup serviceGroup, int pageNum, int pageSize);
 
   WorkOrderSummary getWorkOrderSummary(String keyword, TicketStatus status);
 

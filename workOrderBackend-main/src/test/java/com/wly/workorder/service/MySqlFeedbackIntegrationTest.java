@@ -30,7 +30,7 @@ class MySqlFeedbackIntegrationTest {
 
   @Test
   void create_feedback_works_on_mysql() {
-    AuthContext.set(new AuthSession("mysql-token", "user", "Tester", "", AuthRole.USER));
+    AuthContext.set(new AuthSession("mysql-token", "user", "Tester", "", AuthRole.USER, null));
     String title = "mysql feedback " + System.currentTimeMillis();
     try {
       CreateFeedbackRequest request = new CreateFeedbackRequest();

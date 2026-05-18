@@ -1,5 +1,6 @@
 package com.wly.workorder.auth;
 
+import com.wly.workorder.model.TicketModels.ServiceGroup;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -12,4 +13,5 @@ public class UserProfile {
   private String displayName;
   private String avatarUrl;
   private AuthRole role;
+  private ServiceGroup serviceGroup;
 }

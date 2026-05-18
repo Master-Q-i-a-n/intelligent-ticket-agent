@@ -122,6 +122,34 @@ class AuthFlowTest {
   }
 
   @Test
+  void admin_registration_should_persist_and_return_service_group() throws Exception {
+    String username = "admin-" + System.currentTimeMillis();
+
+    mockMvc.perform(post("/api/auth/register")
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"username\":\"" + username + "\",\"password\":\"123456\",\"displayName\":\"Group Admin\",\"avatarUrl\":\"\",\"role\":\"ADMIN\",\"serviceGroup\":\"TECH_SUPPORT\"}"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.code").value(200))
+      .andExpect(jsonPath("$.data.user.role").value("ADMIN"))
+      .andExpect(jsonPath("$.data.user.serviceGroup").value("TECH_SUPPORT"));
+
+    Assertions.assertEquals(
+      "TECH_SUPPORT",
+      jdbcTemplate.queryForObject("select service_group from wo_user where username = ?", String.class, username)
+    );
+  }
+
+  @Test
+  void admin_registration_without_service_group_should_fail() throws Exception {
+    mockMvc.perform(post("/api/auth/register")
+        .contentType(MediaType.APPLICATION_JSON)
+        .content("{\"username\":\"admin-no-group\",\"password\":\"123456\",\"displayName\":\"No Group\",\"avatarUrl\":\"\",\"role\":\"ADMIN\"}"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.code").value(400))
+      .andExpect(jsonPath("$.msg").value("admin service group is required"));
+  }
+
+  @Test
   void user_can_update_profile_and_password() throws Exception {
     String token = login("user", "user123");
 

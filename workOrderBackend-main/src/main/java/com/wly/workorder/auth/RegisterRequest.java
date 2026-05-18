@@ -1,5 +1,6 @@
 package com.wly.workorder.auth;
 
+import com.wly.workorder.model.TicketModels.ServiceGroup;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -19,4 +20,6 @@ public class RegisterRequest {
 
   @NotNull
   private AuthRole role;
+
+  private ServiceGroup serviceGroup;
 }

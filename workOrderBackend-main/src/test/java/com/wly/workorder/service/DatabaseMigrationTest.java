@@ -5,6 +5,7 @@ import com.wly.workorder.auth.AuthContext;
 import com.wly.workorder.auth.AuthRole;
 import com.wly.workorder.auth.AuthSession;
 import com.wly.workorder.model.TicketModels.CreateFeedbackRequest;
+import com.wly.workorder.model.TicketModels.ServiceGroup;
 import com.wly.workorder.model.TicketModels.TicketPriority;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,7 @@ class DatabaseMigrationTest {
 
   @Test
   void creating_feedback_should_write_a_row_to_feedback_table() {
-    AuthContext.set(new AuthSession("token-user", "user", "Tester", "", AuthRole.USER));
+    AuthContext.set(new AuthSession("token-user", "user", "Tester", "", AuthRole.USER, null));
     try {
       CreateFeedbackRequest request = new CreateFeedbackRequest();
       request.setTitle("DB title");
@@ -54,11 +55,17 @@ class DatabaseMigrationTest {
     );
 
     assertEquals(1, count);
+    String serviceGroup = jdbcTemplate.queryForObject(
+      "select service_group from wo_feedback where title = ?",
+      String.class,
+      "DB title"
+    );
+    assertEquals(ServiceGroup.PRODUCT_CONSULTING.name(), serviceGroup);
   }
 
   @Test
   void creating_feedback_should_not_throw() {
-    AuthContext.set(new AuthSession("token-user-2", "user", "Tester", "", AuthRole.USER));
+    AuthContext.set(new AuthSession("token-user-2", "user", "Tester", "", AuthRole.USER, null));
     try {
       CreateFeedbackRequest request = new CreateFeedbackRequest();
       request.setTitle("DB title 2");

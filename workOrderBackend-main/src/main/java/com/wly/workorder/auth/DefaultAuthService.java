@@ -1,6 +1,7 @@
 package com.wly.workorder.auth;
 
 import com.wly.workorder.common.ApiResponse;
+import com.wly.workorder.model.TicketModels.ServiceGroup;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
@@ -24,6 +25,7 @@ public class DefaultAuthService implements AuthService {
     String username = request.getUsername().trim();
     String displayName = request.getDisplayName().trim();
     String avatarUrl = request.getAvatarUrl() == null ? "" : request.getAvatarUrl().trim();
+    ServiceGroup serviceGroup = resolveServiceGroup(request.getRole(), request.getServiceGroup());
 
     Integer exists = jdbcTemplate.queryForObject(
       "select count(*) from wo_user where username = ?",
@@ -36,18 +38,19 @@ public class DefaultAuthService implements AuthService {
 
     String now = now();
     jdbcTemplate.update(
-      "insert into wo_user (id, username, password, display_name, avatar_url, role, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+      "insert into wo_user (id, username, password, display_name, avatar_url, role, service_group, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       "user-" + UUID.randomUUID().toString().substring(0, 8),
       username,
       request.getPassword(),
       displayName,
       avatarUrl,
       request.getRole().name(),
+      serviceGroup == null ? "" : serviceGroup.name(),
       now,
       now
     );
 
-    AuthSession session = new AuthSession(UUID.randomUUID().toString(), username, displayName, avatarUrl, request.getRole());
+    AuthSession session = new AuthSession(UUID.randomUUID().toString(), username, displayName, avatarUrl, request.getRole(), serviceGroup);
     sessions.put(session.getToken(), session);
     return new LoginResponse(session.getToken(), toProfile(session));
   }
@@ -55,14 +58,15 @@ public class DefaultAuthService implements AuthService {
   @Override
   public LoginResponse login(LoginRequest request) {
     AuthUser user = jdbcTemplate.query(
-      "select username, password, display_name, avatar_url, role from wo_user where username = ?",
+      "select username, password, display_name, avatar_url, role, service_group from wo_user where username = ?",
       rs -> rs.next()
         ? new AuthUser(
           rs.getString("username"),
           rs.getString("password"),
           rs.getString("display_name"),
           rs.getString("avatar_url"),
-          AuthRole.valueOf(rs.getString("role"))
+          AuthRole.valueOf(rs.getString("role")),
+          readServiceGroup(rs.getString("service_group"))
         )
         : null,
       request.getUsername()
@@ -70,7 +74,7 @@ public class DefaultAuthService implements AuthService {
     if (user == null || !user.getPassword().equals(request.getPassword())) {
       throw new AuthException(ApiResponse.withCode(401, "invalid username or password", null));
     }
-    AuthSession session = new AuthSession(UUID.randomUUID().toString(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), user.getRole());
+    AuthSession session = new AuthSession(UUID.randomUUID().toString(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl(), user.getRole(), user.getServiceGroup());
     sessions.put(session.getToken(), session);
     return new LoginResponse(session.getToken(), toProfile(session));
   }
@@ -88,14 +92,15 @@ public class DefaultAuthService implements AuthService {
       throw new AuthException(ApiResponse.withCode(400, "unsupported demo account", null));
     }
     AuthUser user = jdbcTemplate.query(
-      "select username, password, display_name, avatar_url, role from wo_user where username = ?",
+      "select username, password, display_name, avatar_url, role, service_group from wo_user where username = ?",
       rs -> rs.next()
         ? new AuthUser(
           rs.getString("username"),
           rs.getString("password"),
           rs.getString("display_name"),
           rs.getString("avatar_url"),
-          AuthRole.valueOf(rs.getString("role"))
+          AuthRole.valueOf(rs.getString("role")),
+          readServiceGroup(rs.getString("service_group"))
         )
         : null,
       normalized
@@ -128,14 +133,15 @@ public class DefaultAuthService implements AuthService {
   public UserProfile updatePassword(UpdatePasswordRequest request) {
     AuthSession session = requireSession();
     AuthUser user = jdbcTemplate.query(
-      "select username, password, display_name, avatar_url, role from wo_user where username = ?",
+      "select username, password, display_name, avatar_url, role, service_group from wo_user where username = ?",
       rs -> rs.next()
         ? new AuthUser(
           rs.getString("username"),
           rs.getString("password"),
           rs.getString("display_name"),
           rs.getString("avatar_url"),
-          AuthRole.valueOf(rs.getString("role"))
+          AuthRole.valueOf(rs.getString("role")),
+          readServiceGroup(rs.getString("service_group"))
         )
         : null,
       session.getUsername()
@@ -178,7 +184,7 @@ public class DefaultAuthService implements AuthService {
   }
 
   private UserProfile toProfile(AuthSession session) {
-    return new UserProfile(session.getUsername(), session.getDisplayName(), session.getAvatarUrl(), session.getRole());
+    return new UserProfile(session.getUsername(), session.getDisplayName(), session.getAvatarUrl(), session.getRole(), session.getServiceGroup());
   }
 
   private void updateSessions(String username, java.util.function.Consumer<AuthSession> consumer) {
@@ -193,6 +199,23 @@ public class DefaultAuthService implements AuthService {
       return normalized;
     }
     return null;
+  }
+
+  private ServiceGroup resolveServiceGroup(AuthRole role, ServiceGroup serviceGroup) {
+    if (role == AuthRole.ADMIN) {
+      if (serviceGroup == null) {
+        throw new AuthException(ApiResponse.withCode(400, "admin service group is required", null));
+      }
+      return serviceGroup;
+    }
+    return null;
+  }
+
+  private ServiceGroup readServiceGroup(String value) {
+    if (value == null || value.isBlank()) {
+      return null;
+    }
+    return ServiceGroup.valueOf(value);
   }
 
   private static String now() {

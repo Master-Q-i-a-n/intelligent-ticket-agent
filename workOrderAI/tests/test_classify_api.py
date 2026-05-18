@@ -47,8 +47,9 @@ class ClassifyApiTests(unittest.TestCase):
 
         self.assertEqual(
             cursor.execute.call_args_list[1].args[0],
-            "UPDATE wo_feedback SET category = %s, priority = %s, emotion = %s WHERE id = %s",
+            "UPDATE wo_feedback SET category = %s, priority = %s, emotion = %s, service_group = %s WHERE id = %s",
         )
+        self.assertEqual(cursor.execute.call_args_list[1].args[1][3], "TECH_SUPPORT")
 
     @patch("workOrderAI.app.api.classify.ClassifyService")
     @patch("workOrderAI.app.api.classify.get_db_connection")
