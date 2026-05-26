@@ -277,7 +277,7 @@ class VectorStoreService:
 
         return BM25Retriever.from_documents(
             documents=all_docs,
-            k=config["vector_store"]["k"],
+            k=self._retriever_k(),
         )
 
     async def _get_cached_base_retrievers(self):
@@ -290,7 +290,7 @@ class VectorStoreService:
                 started_at = time.perf_counter()
                 cls._cached_vector_retriever = self.vectors_store.as_retriever(
                     search_type="similarity",
-                    search_kwargs={"k": config["vector_store"]["k"]},
+                    search_kwargs={"k": self._retriever_k()},
                 )
                 cls._cached_bm25_retriever = await self._build_bm25_retriever()
                 cls._retriever_cache_initialized = True
@@ -301,6 +301,9 @@ class VectorStoreService:
                     "yes" if cls._cached_bm25_retriever else "no",
                 )
         return cls._cached_vector_retriever, cls._cached_bm25_retriever
+
+    def _retriever_k(self) -> int:
+        return int(config["vector_store"].get("rerank_candidate_k") or config["vector_store"]["k"])
 
     @classmethod
     async def invalidate_retriever_cache(cls):

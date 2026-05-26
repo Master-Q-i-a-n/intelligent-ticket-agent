@@ -8,7 +8,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langsmith import traceable
 
-from workOrderAI.models.factory import chat_model
+from workOrderAI.models.factory import chat_model, reranker_model
 from workOrderAI.utils.config import config
 from workOrderAI.utils.logger_handler import logger
 from workOrderAI.utils.prompt_builder import (
@@ -30,6 +30,7 @@ class RagService:
         self.retriever = None
         self.prompt_template = PromptTemplate.from_template(RAG_SUMMARIZE_PROMPT)
         self.chat_model = chat_model
+        self.reranker_model = reranker_model
         self.hyde_model = self.chat_model.bind(max_tokens=HYDE_MAX_TOKENS)
         self.chain = self._init_chain(self.prompt_template)
         self.hyde_pre_prompt_template = PromptTemplate.from_template(HYDE_PROMPT_PRE)
@@ -64,6 +65,33 @@ class RagService:
         if self.retriever is None:
             self.retriever = await self.vector_store.get_retriever(query)
 
+    def _rerank_candidate_k(self) -> int:
+        return int(config["vector_store"].get("rerank_candidate_k") or config["vector_store"]["k"])
+
+    def _rerank_top_k(self) -> int:
+        return int(config["vector_store"].get("rerank_top_k") or config["vector_store"]["k"])
+
+    async def rerank_documents(self, query: str, documents: list, top_k: int | None = None, log_prefix: str = "[RAG]") -> list:
+        selected_k = top_k or self._rerank_top_k()
+        if not documents:
+            return []
+
+        started_at = time.perf_counter()
+        try:
+            reranked = await self.reranker_model.acompress_documents(documents, query)
+            selected = list(reranked)[:selected_k]
+            logger.info(
+                "%s rerank finished, candidates=%s, selected=%s, elapsed=%.2fs",
+                log_prefix,
+                len(documents),
+                len(selected),
+                time.perf_counter() - started_at,
+            )
+            return selected
+        except Exception as e:
+            logger.error("%s rerank failed: %s", log_prefix, e, exc_info=True)
+            return list(documents)[:selected_k]
+
     @traceable
     async def generate_hypothetical_document(self, query: str, chain: runnables.Runnable) -> str:
         try:
@@ -77,11 +105,12 @@ class RagService:
     @traceable
     async def retrieve_document(self, query: str) -> list:
         try:
-            if self.retriever is None:
-                await self.initialize_retriever(query)
-            documents = await self.retriever.ainvoke(query)
-            logger.info("[RAG] retrieved %s documents", len(documents))
-            return documents
+            retriever = await self.vector_store.get_retriever(query)
+            started_at = time.perf_counter()
+            documents = await retriever.ainvoke(query)
+            documents = documents[:self._rerank_candidate_k()]
+            logger.info("[RAG] retrieved %s candidate documents, elapsed=%.2fs", len(documents), time.perf_counter() - started_at)
+            return await self.rerank_documents(query, documents, self._rerank_top_k(), "[RAG]")
         except Exception as e:
             logger.error("[RAG] retrieve failed: %s", e)
             return []
@@ -113,6 +142,28 @@ class RagService:
         except Exception as e:
             logger.error("[RAG-light] scored retrieval failed: %s", e, exc_info=True)
             return []
+
+    async def retrieve_direct_reranked_matches(self, query: str) -> list[tuple]:
+        matches = await self.retrieve_direct_document_matches(query, limit=self._rerank_candidate_k())
+        if not matches:
+            return []
+
+        score_by_key = {
+            self._document_match_key(document): score
+            for document, score in matches
+        }
+        documents = [document for document, _ in matches]
+        reranked_documents = await self.rerank_documents(query, documents, self._rerank_top_k(), "[RAG-light]")
+        return [
+            (
+                document,
+                self._normalize_score(
+                    (document.metadata or {}).get("relevance_score"),
+                    fallback=score_by_key.get(self._document_match_key(document), 0.0),
+                ),
+            )
+            for document in reranked_documents
+        ]
 
     @traceable
     async def get_documents_and_summary(self, query: str) -> dict:
@@ -191,7 +242,7 @@ class RagService:
 
     @traceable
     async def rag_summary_for_suggestion(self, query: str) -> dict:
-        matches = await self.retrieve_direct_document_matches(query, limit=2)
+        matches = await self.retrieve_direct_reranked_matches(query)
         if not matches:
             return {"summary": "抱歉，我没有找到相关的信息。", "sources": []}
 
@@ -277,6 +328,16 @@ class RagService:
                 }
             )
         return sources
+
+    def _document_match_key(self, document) -> str:
+        metadata = document.metadata or {}
+        return str(
+            metadata.get("vector_id")
+            or metadata.get("chunk_id")
+            or metadata.get("document_id")
+            or metadata.get("source")
+            or document.page_content
+        )
 
     def _normalize_score(self, score, fallback: float = 0.0) -> float:
         try:

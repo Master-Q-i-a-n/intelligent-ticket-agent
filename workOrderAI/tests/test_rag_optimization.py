@@ -158,9 +158,9 @@ class RagLightPathTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([doc.page_content for doc in documents], ["doc-1", "doc-2"])
 
-    async def test_rag_summary_for_suggestion_uses_direct_top2_documents(self):
+    async def test_rag_summary_for_suggestion_uses_reranked_documents(self):
         service = RagService.__new__(RagService)
-        service.retrieve_direct_document_matches = AsyncMock(
+        service.retrieve_direct_reranked_matches = AsyncMock(
             return_value=[
                 (
                     Document(
@@ -175,6 +175,13 @@ class RagLightPathTests(unittest.IsolatedAsyncioTestCase):
                         metadata={"document_id": "doc-2-id", "title": "Doc 2", "vector_id": "chunk-2"},
                     ),
                     0.82,
+                ),
+                (
+                    Document(
+                        page_content="doc-3",
+                        metadata={"document_id": "doc-3-id", "title": "Doc 3", "vector_id": "chunk-3"},
+                    ),
+                    0.73,
                 ),
             ]
         )
@@ -195,9 +202,95 @@ class RagLightPathTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["sources"][0]["document_id"], "doc-1-id")
         self.assertEqual(result["sources"][0]["chunk_id"], "chunk-1")
         self.assertEqual(result["sources"][0]["score"], 0.91)
-        service.retrieve_direct_document_matches.assert_awaited_once_with("query", limit=2)
+        service.retrieve_direct_reranked_matches.assert_awaited_once_with("query")
         self.assertIn("doc-1", service.chain.payload["context"])
         self.assertIn("doc-2", service.chain.payload["context"])
+        self.assertIn("doc-3", service.chain.payload["context"])
+
+    async def test_retrieve_direct_reranked_matches_fetches_five_and_keeps_three(self):
+        service = RagService.__new__(RagService)
+        documents = [
+            Document(page_content=f"doc-{index}", metadata={"vector_id": f"chunk-{index}"})
+            for index in range(1, 6)
+        ]
+        service.retrieve_direct_document_matches = AsyncMock(
+            return_value=[
+                (documents[0], 0.1),
+                (documents[1], 0.2),
+                (documents[2], 0.3),
+                (documents[3], 0.4),
+                (documents[4], 0.5),
+            ]
+        )
+        reranked = [
+            Document(page_content="doc-5", metadata={"vector_id": "chunk-5", "relevance_score": 0.93}),
+            Document(page_content="doc-3", metadata={"vector_id": "chunk-3", "relevance_score": 0.88}),
+            Document(page_content="doc-1", metadata={"vector_id": "chunk-1"}),
+        ]
+        service.rerank_documents = AsyncMock(return_value=reranked)
+
+        matches = await RagService.retrieve_direct_reranked_matches(service, "query")
+
+        service.retrieve_direct_document_matches.assert_awaited_once_with("query", limit=5)
+        service.rerank_documents.assert_awaited_once_with("query", documents, 3, "[RAG-light]")
+        self.assertEqual([doc.page_content for doc, _ in matches], ["doc-5", "doc-3", "doc-1"])
+        self.assertEqual([score for _, score in matches], [0.93, 0.88, 0.1])
+
+    async def test_rerank_documents_uses_reranker_and_top_k(self):
+        service = RagService.__new__(RagService)
+        documents = [Document(page_content=f"doc-{index}") for index in range(1, 6)]
+
+        class _DummyReranker:
+            def __init__(self):
+                self.query = None
+                self.documents = None
+
+            async def acompress_documents(self, docs, query):
+                self.documents = docs
+                self.query = query
+                return [docs[4], docs[2], docs[0], docs[1], docs[3]]
+
+        service.reranker_model = _DummyReranker()
+
+        result = await RagService.rerank_documents(service, "query", documents, top_k=3)
+
+        self.assertEqual([doc.page_content for doc in result], ["doc-5", "doc-3", "doc-1"])
+        self.assertEqual(service.reranker_model.query, "query")
+        self.assertEqual(service.reranker_model.documents, documents)
+
+    async def test_rerank_documents_falls_back_to_original_order_on_error(self):
+        service = RagService.__new__(RagService)
+        documents = [Document(page_content=f"doc-{index}") for index in range(1, 6)]
+
+        class _FailingReranker:
+            async def acompress_documents(self, _docs, _query):
+                raise RuntimeError("rerank failed")
+
+        service.reranker_model = _FailingReranker()
+
+        result = await RagService.rerank_documents(service, "query", documents, top_k=3)
+
+        self.assertEqual([doc.page_content for doc in result], ["doc-1", "doc-2", "doc-3"])
+
+    async def test_retrieve_document_reranks_hybrid_candidates(self):
+        service = RagService.__new__(RagService)
+        documents = [Document(page_content=f"doc-{index}") for index in range(1, 6)]
+
+        class _DummyRetriever:
+            async def ainvoke(self, _query):
+                return documents
+
+        class _DummyVectorStoreService:
+            async def get_retriever(self, _query):
+                return _DummyRetriever()
+
+        service.vector_store = _DummyVectorStoreService()
+        service.rerank_documents = AsyncMock(return_value=[documents[2], documents[1], documents[0]])
+
+        result = await RagService.retrieve_document(service, "query")
+
+        service.rerank_documents.assert_awaited_once_with("query", documents, 3, "[RAG]")
+        self.assertEqual([doc.page_content for doc in result], ["doc-3", "doc-2", "doc-1"])
 
     async def test_chitchat_invalid_returns_knowledge_refusal(self):
         service = RagService.__new__(RagService)
