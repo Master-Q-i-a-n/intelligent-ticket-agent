@@ -1,5 +1,5 @@
 model:
-  chat_model: qwen3-max-preview
+  chat_model: qwen3-max-2026-01-23
   judge_model: qwen3-next-80b-a3b-instruct
   embedding_model: text-embedding-v4
   reranker_model: qwen3-rerank
@@ -20,9 +20,11 @@ FastAPI:
   log_level: info
 
 vector_store:
-  persist_directory: data/chroma_db
+  provider: milvus_lite
+  milvus_uri: data/milvus_lite.db
+  milvus_metric_type: COSINE
   data_path: data
-  knowledge_exclude_paths: ["data/md5_hex_store", "data/external", "data/chroma_db"]
+  knowledge_exclude_paths: ["data/md5_hex_store", "data/milvus_md5_store", "data/external", "data/chroma_db", "data/milvus_lite.db"]
   allow_knowledge_file_types: ["pdf", "docx", "txt"]
   collection_name: rag_collection
   case_memory_collection_name: case_memory_collection
@@ -31,4 +33,4 @@ vector_store:
   chunk_overlap: 20
   k: 3
   separators: ["\n\n", "\n", "。", "！", "？", "!", "?", " ", ""]
-  md5_hex_store: data/md5_hex_store/md5_hex_store.txt
+  md5_hex_store: data/milvus_md5_store/md5_hex_store.txt

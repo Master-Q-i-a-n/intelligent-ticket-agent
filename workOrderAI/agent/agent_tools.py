@@ -14,7 +14,7 @@ from workOrderAI.utils.logger_handler import logger
 @tool(description="Summarize related knowledge base content for the current question.")
 async def rag_summarize(query: str) -> str:
     result = await RagService().rag_summary_for_suggestion(query)
-    return result
+    return json.dumps(result, ensure_ascii=False)
 
 
 @tool(description="Get the current local time.")
@@ -120,14 +120,7 @@ def get_current_username() -> str:
     return get_current_username_value()
 
 
-@tool(description="Fetch user records from the user_records database table by user id and optional month.")
-def fetch_external_data(user_id: str, month: str = "") -> str:
-    user_id = str(user_id or "").strip()
-    month = str(month or "").strip()
-    if not user_id:
-        logger.warning("[fetch_external_data] user_id is empty")
-        return ""
-
+def _query_user_records(user_id: str, month: str = "", tool_name: str = "user_records") -> str:
     conn = None
     try:
         conn = get_db_connection()
@@ -154,14 +147,14 @@ def fetch_external_data(user_id: str, month: str = "") -> str:
                 )
             rows = cursor.fetchall()
     except Exception as e:
-        logger.error(f"[fetch_external_data] database query failed: {e}", exc_info=True)
+        logger.error(f"[{tool_name}] database query failed: {e}", exc_info=True)
         return ""
     finally:
         if conn:
             conn.close()
 
     if not rows:
-        logger.warning(f"[fetch_external_data] no records found for user_id={user_id}, month={month or '*'}")
+        logger.warning(f"[{tool_name}] no records found for user_id={user_id}, month={month or '*'}")
         return json.dumps(
             {
                 "found": False,
@@ -176,6 +169,39 @@ def fetch_external_data(user_id: str, month: str = "") -> str:
     return _format_user_records(rows)
 
 
+@tool(description="Fetch usage records for the current work order owner by optional month.")
+def fetch_current_user_records(month: str = "") -> str:
+    month = str(month or "").strip()
+    current_username = get_current_username_value()
+    if not current_username:
+        logger.warning("[fetch_current_user_records] blocked query because current username context is empty")
+        return ""
+    return _query_user_records(current_username, month, "fetch_current_user_records")
+
+
+@tool(description="Fetch user records from the user_records database table by user id and optional month.")
+def fetch_external_data(user_id: str, month: str = "") -> str:
+    user_id = str(user_id or "").strip()
+    month = str(month or "").strip()
+    if not user_id:
+        logger.warning("[fetch_external_data] user_id is empty")
+        return ""
+
+    current_username = get_current_username_value()
+    if not current_username:
+        logger.warning("[fetch_external_data] blocked query because current username context is empty")
+        return ""
+    if user_id != current_username:
+        logger.warning(
+            "[fetch_external_data] blocked cross-user query: requested_user_id=%s, current_username=%s",
+            user_id,
+            current_username,
+        )
+        return ""
+
+    return _query_user_records(user_id, month, "fetch_external_data")
+
+
 @tool(description="Fetch similar solved or closed historical work order cases for the current problem.")
 async def fetch_similar_cases(query: str) -> str:
     cases = await CaseMemoryService().search_similar_cases(query)
@@ -188,6 +214,7 @@ def get_tools():
         get_time_now,
         get_current_weather,
         get_current_username,
+        fetch_current_user_records,
         fetch_external_data,
         fetch_similar_cases,
     ]

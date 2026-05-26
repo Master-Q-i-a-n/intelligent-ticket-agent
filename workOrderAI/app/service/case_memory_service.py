@@ -4,7 +4,6 @@ import re
 import uuid
 from datetime import datetime
 
-from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
 from workOrderAI.app.model.database import get_db_connection
@@ -12,7 +11,7 @@ from workOrderAI.app.model.request import CaseMemoryUpsertRequest
 from workOrderAI.models.factory import embed_model
 from workOrderAI.utils.config import config
 from workOrderAI.utils.logger_handler import logger
-from workOrderAI.utils.path_tool import get_abs_path
+from workOrderAI.utils.vector_store import MilvusLiteVectorStore
 
 
 class CaseMemoryService:
@@ -21,12 +20,15 @@ class CaseMemoryService:
     COLLECTION_NAME = "case_memory_collection"
 
     def __init__(self):
-        persist_dir = get_abs_path(config["vector_store"]["persist_directory"])
-        self.vector_store = Chroma(
-            collection_name=config["vector_store"].get("case_memory_collection_name", self.COLLECTION_NAME),
-            embedding_function=embed_model,
-            persist_directory=persist_dir,
-        )
+        self.vector_store = None
+
+    def _get_vector_store(self):
+        if getattr(self, "vector_store", None) is None:
+            self.vector_store = MilvusLiteVectorStore(
+                collection_name=config["vector_store"].get("case_memory_collection_name", self.COLLECTION_NAME),
+                embedding_function=embed_model,
+            )
+        return self.vector_store
 
     async def upsert_case(self, request: CaseMemoryUpsertRequest) -> dict | None:
         """仅把已解决/已关闭且含客服回复的工单沉淀为可检索案例。"""
@@ -53,8 +55,9 @@ class CaseMemoryService:
                 "status": status,
             },
         )
-        await asyncio.to_thread(self.vector_store.delete, ids=[vector_id])
-        await asyncio.to_thread(self.vector_store.add_documents, [document], ids=[vector_id])
+        vector_store = self._get_vector_store()
+        await asyncio.to_thread(vector_store.delete, ids=[vector_id])
+        await asyncio.to_thread(vector_store.add_documents, [document], ids=[vector_id])
 
         conn = get_db_connection()
         try:
@@ -100,7 +103,7 @@ class CaseMemoryService:
                     )
             conn.commit()
         except Exception:
-            await asyncio.to_thread(self.vector_store.delete, ids=[vector_id])
+            await asyncio.to_thread(vector_store.delete, ids=[vector_id])
             raise
         finally:
             conn.close()
@@ -122,8 +125,9 @@ class CaseMemoryService:
             return []
 
         try:
+            vector_store = self._get_vector_store()
             matches = await asyncio.to_thread(
-                self.vector_store.similarity_search_with_relevance_scores,
+                vector_store.similarity_search_with_relevance_scores,
                 normalized_query,
                 k=limit,
             )

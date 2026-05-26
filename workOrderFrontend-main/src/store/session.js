@@ -1,7 +1,23 @@
 import { reactive } from 'vue'
 import { clearSession, getCurrentRole, isAuthenticated, readSession, writeSession } from '../utils/auth'
 
-const stored = readSession()
+const TAB_SESSION_KEY = 'workorder.tab.active'
+
+function initializeSession() {
+  try {
+    if (!sessionStorage.getItem(TAB_SESSION_KEY)) {
+      clearSession()
+      sessionStorage.setItem(TAB_SESSION_KEY, '1')
+      return null
+    }
+  } catch (error) {
+    clearSession()
+    return null
+  }
+  return readSession()
+}
+
+const stored = initializeSession()
 
 export const sessionState = reactive({
   token: stored?.token || '',

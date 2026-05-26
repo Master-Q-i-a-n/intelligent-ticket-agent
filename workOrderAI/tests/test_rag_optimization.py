@@ -13,7 +13,7 @@ from workOrderAI.app.service.rag_service import (
 )
 from workOrderAI.utils.prompt_builder import QUESTION_HYDE_PROMPT, STATEMENT_HYDE_PROMPT
 from workOrderAI.utils.file_handler import listdir_allowed_type
-from workOrderAI.utils.vector_store import VectorStoreService
+from workOrderAI.utils.vector_store import MilvusLiteVectorStore, VectorStoreService
 
 
 class _DummyVectorStore:
@@ -99,6 +99,43 @@ class DynamicWeightTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+class MilvusLiteVectorStoreTests(unittest.TestCase):
+    def test_search_loads_released_collection_before_query(self):
+        class _FakeEmbeddings:
+            def embed_query(self, _query):
+                return [0.1, 0.2, 0.3]
+
+        class _FakeMilvusClient:
+            def __init__(self):
+                self.load_calls = []
+                self.search_called = False
+
+            def has_collection(self, _collection_name):
+                return True
+
+            def get_load_state(self, collection_name):
+                return {"state": "LoadStateReleased", "collection_name": collection_name}
+
+            def load_collection(self, collection_name):
+                self.load_calls.append(collection_name)
+
+            def search(self, **_kwargs):
+                self.search_called = True
+                return [[]]
+
+        store = MilvusLiteVectorStore.__new__(MilvusLiteVectorStore)
+        store.collection_name = "rag_collection"
+        store.embedding_function = _FakeEmbeddings()
+        store.metric_type = "COSINE"
+        store.client = _FakeMilvusClient()
+
+        result = store.similarity_search_with_relevance_scores("query")
+
+        self.assertEqual(result, [])
+        self.assertEqual(store.client.load_calls, ["rag_collection"])
+        self.assertTrue(store.client.search_called)
+
+
 class RagLightPathTests(unittest.IsolatedAsyncioTestCase):
     async def test_retrieve_direct_documents_respects_limit(self):
         service = RagService.__new__(RagService)
@@ -123,10 +160,22 @@ class RagLightPathTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rag_summary_for_suggestion_uses_direct_top2_documents(self):
         service = RagService.__new__(RagService)
-        service.retrieve_direct_documents = AsyncMock(
+        service.retrieve_direct_document_matches = AsyncMock(
             return_value=[
-                Document(page_content="doc-1"),
-                Document(page_content="doc-2"),
+                (
+                    Document(
+                        page_content="doc-1",
+                        metadata={"document_id": "doc-1-id", "title": "Doc 1", "vector_id": "chunk-1"},
+                    ),
+                    0.91,
+                ),
+                (
+                    Document(
+                        page_content="doc-2",
+                        metadata={"document_id": "doc-2-id", "title": "Doc 2", "vector_id": "chunk-2"},
+                    ),
+                    0.82,
+                ),
             ]
         )
 
@@ -142,8 +191,11 @@ class RagLightPathTests(unittest.IsolatedAsyncioTestCase):
 
         result = await RagService.rag_summary_for_suggestion(service, "query")
 
-        self.assertEqual(result, "summary")
-        service.retrieve_direct_documents.assert_awaited_once_with("query", limit=2)
+        self.assertEqual(result["summary"], "summary")
+        self.assertEqual(result["sources"][0]["document_id"], "doc-1-id")
+        self.assertEqual(result["sources"][0]["chunk_id"], "chunk-1")
+        self.assertEqual(result["sources"][0]["score"], 0.91)
+        service.retrieve_direct_document_matches.assert_awaited_once_with("query", limit=2)
         self.assertIn("doc-1", service.chain.payload["context"])
         self.assertIn("doc-2", service.chain.payload["context"])
 
