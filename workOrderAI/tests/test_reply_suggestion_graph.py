@@ -2,6 +2,7 @@ import unittest
 
 from langchain_core.messages import AIMessage
 
+from workOrderAI.agent.agent_context import record_tool_call, reset_tool_trace, start_tool_trace
 from workOrderAI.app.model.request import ReplySuggestRequest
 from workOrderAI.app.service.reply_suggestion_graph import ReplySuggestionGraph
 
@@ -88,7 +89,7 @@ class ReplySuggestionGraphSelfCheckTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_groundedness_blocks_fabricated_records_when_no_records_found(self):
         graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
-        graph._format_evidence = lambda _state: '{"found": false, "records": [], "message": "no records found"}'
+        graph._format_trusted_evidence = lambda _state: '{"found": false, "records": [], "message": "no records found"}'
         state = {
             "work_order": self._request(),
             "route": "USER_RECORD",
@@ -100,6 +101,143 @@ class ReplySuggestionGraphSelfCheckTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["check_result"]["status"], "REVISE")
         self.assertIn("groundedness", result["check_result"]["failed_dimensions"])
+
+    def test_groundedness_rules_do_not_treat_branch_result_as_no_records_evidence(self):
+        graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
+        graph._format_trusted_evidence = lambda _state: "工具 fetch_current_user_records 返回：滤网剩余15%"
+        state = {
+            "work_order": self._request(),
+            "route": "DIRECT_KNOWLEDGE",
+            "branch_result": "未查到记录。",
+        }
+
+        issues = graph._check_groundedness("您好，建议您按记录关注滤网状态。", state)
+
+        self.assertEqual(issues, [])
+
+    async def test_groundedness_model_blocks_unsupported_facts(self):
+        graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
+        graph.router_model = DummyRouterModel(
+            '{"supported":false,"unsupported_facts":["滤网剩余10%"],"reason":"证据中只支持滤网剩余15%"}'
+        )
+        graph._format_trusted_evidence = lambda _state: "工具 fetch_current_user_records 返回：滤网剩余15%，主刷剩余35天"
+        state = {
+            "work_order": self._request(),
+            "route": "USER_RECORD",
+            "draft_reply": "已查询记录，滤网剩余10%，建议您及时关注耗材。",
+            "retry_count": 0,
+        }
+
+        result = await ReplySuggestionGraph.self_check(graph, state)
+
+        self.assertEqual(result["check_result"]["status"], "REVISE")
+        self.assertIn("groundedness", result["check_result"]["failed_dimensions"])
+        self.assertIn("滤网剩余10%", "；".join(result["check_result"]["issues"]))
+
+    async def test_groundedness_model_checks_branch_result_against_trusted_evidence(self):
+        graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
+        graph.router_model = DummyRouterModel(
+            '{"supported":false,"unsupported_facts":["分支结果中的滤网剩余10%"],"reason":"可信证据中只支持滤网剩余15%"}'
+        )
+        graph._format_trusted_evidence = lambda _state: "工具 fetch_current_user_records 返回：滤网剩余15%，主刷剩余35天"
+        state = {
+            "work_order": self._request(),
+            "route": "USER_RECORD",
+            "branch_result": "用户记录显示滤网剩余10%。",
+            "draft_reply": "已查询记录，滤网剩余10%，建议您及时关注耗材。",
+            "retry_count": 0,
+        }
+
+        result = await ReplySuggestionGraph.self_check(graph, state)
+
+        self.assertEqual(result["check_result"]["status"], "REVISE")
+        self.assertIn("groundedness", result["check_result"]["failed_dimensions"])
+        issue_text = "；".join(result["check_result"]["issues"])
+        self.assertIn("分支结果中的滤网剩余10%", issue_text)
+        self.assertIn("可信证据中只支持滤网剩余15%", issue_text)
+
+    def test_trusted_evidence_excludes_branch_result_and_keeps_sources(self):
+        graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
+        token = start_tool_trace()
+        try:
+            record_tool_call("fetch_current_user_records", {"month": "2025-12"}, "滤网剩余15%")
+            state = {
+                "branch_result": "滤网剩余10%",
+                "case_memories": [{"ticket_code": "C-1", "title": "保养案例", "final_reply": "建议清理滤网"}],
+                "rag_sources": [{"title": "维护保养", "score": 0.9}],
+            }
+
+            evidence = graph._format_trusted_evidence(state)
+        finally:
+            reset_tool_trace(token)
+
+        self.assertIn("滤网剩余15%", evidence)
+        self.assertIn("保养案例", evidence)
+        self.assertIn("维护保养", evidence)
+        self.assertNotIn("滤网剩余10%", evidence)
+
+    async def test_groundedness_model_supported_allows_reply(self):
+        graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
+        graph.router_model = DummyRouterModel('{"supported":true,"unsupported_facts":[],"reason":"事实均有证据"}')
+        graph._format_trusted_evidence = lambda _state: "知识库摘要：建议每周清理滤网并定期检查主刷。"
+        state = {
+            "work_order": ReplySuggestRequest(
+                id="fb-knowledge",
+                title="保养咨询",
+                description="扫地机器人怎么保养？",
+                owner_username="1001",
+                history=[],
+            ),
+            "route": "DIRECT_KNOWLEDGE",
+            "draft_reply": "您好，建议您每周清理滤网，并定期检查主刷。",
+            "retry_count": 0,
+        }
+
+        result = await ReplySuggestionGraph.self_check(graph, state)
+
+        self.assertEqual(result["check_result"]["status"], "PASS")
+
+    async def test_groundedness_model_invalid_json_does_not_block(self):
+        graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
+        graph.router_model = DummyRouterModel("not-json")
+        graph._format_trusted_evidence = lambda _state: "知识库摘要：建议定期保养。"
+        state = {
+            "work_order": ReplySuggestRequest(
+                id="fb-knowledge",
+                title="保养咨询",
+                description="扫地机器人怎么保养？",
+                owner_username="1001",
+                history=[],
+            ),
+            "route": "DIRECT_KNOWLEDGE",
+            "draft_reply": "您好，建议您按照说明定期保养。",
+            "retry_count": 0,
+        }
+
+        result = await ReplySuggestionGraph.self_check(graph, state)
+
+        self.assertEqual(result["check_result"]["status"], "PASS")
+
+    async def test_groundedness_model_exception_does_not_block(self):
+        graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
+        graph.router_model = DummyRouterModel(RuntimeError("boom"))
+        graph._format_trusted_evidence = lambda _state: "知识库摘要：建议定期保养。"
+        state = {
+            "work_order": ReplySuggestRequest(
+                id="fb-knowledge",
+                title="保养咨询",
+                description="扫地机器人怎么保养？",
+                owner_username="1001",
+                history=[],
+            ),
+            "route": "DIRECT_KNOWLEDGE",
+            "draft_reply": "您好，建议您按照说明定期保养。",
+            "retry_count": 0,
+        }
+
+        result = await ReplySuggestionGraph.self_check(graph, state)
+
+        self.assertEqual(result["check_result"]["status"], "PASS")
 
     async def test_privacy_issue_escalates(self):
         graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
@@ -118,7 +256,7 @@ class ReplySuggestionGraphSelfCheckTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_completeness_requires_record_query_result(self):
         graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
-        graph._format_evidence = lambda _state: "有工具证据"
+        graph._format_trusted_evidence = lambda _state: "有工具证据"
         state = {
             "work_order": self._request(),
             "route": "USER_RECORD",

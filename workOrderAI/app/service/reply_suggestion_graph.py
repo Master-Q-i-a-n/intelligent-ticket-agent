@@ -250,6 +250,7 @@ class ReplySuggestionGraph:
                 issues.extend(privacy_issues)
 
             groundedness_issues = self._check_groundedness(draft, state)
+            groundedness_issues.extend(await self._check_groundedness_by_model(draft, state))
             if groundedness_issues:
                 failed_dimensions.append("groundedness")
                 issues.extend(groundedness_issues)
@@ -453,6 +454,21 @@ class ReplySuggestionGraph:
             )
         return "\n".join(evidence)
 
+    def _format_trusted_evidence(self, state: ReplySuggestionState) -> str:
+        trace = get_tool_trace()
+        evidence = []
+        for item in trace:
+            evidence.append(
+                f"工具 {item.get('name')} 参数 {item.get('args')} 返回：{self._truncate(item.get('output') or '', 1200)}"
+            )
+        cases = self._format_cases(state.get("case_memories") or [])
+        if cases:
+            evidence.append(f"历史案例：\n{cases}")
+        rag_sources = state.get("rag_sources") or []
+        if rag_sources:
+            evidence.append(f"RAG来源：{self._truncate(json.dumps(rag_sources, ensure_ascii=False), 1200)}")
+        return "\n".join(evidence)
+
     def _check_privacy(self, draft: str, work_order: ReplySuggestRequest) -> list[str]:
         issues = []
         forbidden_terms = ["owner_username", "ticket_id", "tool_trace", "数据库字段", "内部字段"]
@@ -466,16 +482,92 @@ class ReplySuggestionGraph:
 
     def _check_groundedness(self, draft: str, state: ReplySuggestionState) -> list[str]:
         issues = []
-        evidence_text = self._format_evidence(state)
-        no_records = "no records found" in evidence_text or '"found": false' in evidence_text or "未查到" in evidence_text
+        trusted_evidence = self._format_trusted_evidence(state)
+        no_records = "no records found" in trusted_evidence or '"found": false' in trusted_evidence or "未查到" in trusted_evidence
         if no_records:
             if not self._contains_any(draft, ["未", "没有", "暂无记录", "无法"]):
                 issues.append("工具未查到记录，但回复没有明确说明未查到")
             if re.search(r"(清扫|清洁).{0,8}\d+\s*次", draft) or re.search(r"剩余\s*\d+", draft):
                 issues.append("工具未查到记录，但回复出现了具体使用记录或耗材寿命，疑似编造")
-        if state.get("route") == "USER_RECORD" and not evidence_text.strip():
+        if state.get("route") == "USER_RECORD" and not trusted_evidence.strip():
             issues.append("用户记录问题缺少工具证据")
         return issues
+
+    async def _check_groundedness_by_model(self, draft: str, state: ReplySuggestionState) -> list[str]:
+        trusted_evidence = self._format_trusted_evidence(state)
+        if not str(draft or "").strip() or not str(trusted_evidence or "").strip():
+            return []
+
+        model = getattr(self, "router_model", None)
+        if model is None:
+            logger.warning("[reply-graph] groundedness model is unavailable, skip model check")
+            return []
+
+        prompt = self._build_groundedness_check_prompt(
+            draft=self._truncate(draft, 3000),
+            trusted_evidence=self._truncate(trusted_evidence, 3000),
+            branch_result=self._truncate(state.get("branch_result") or "", 2000),
+            route=state.get("route") or "DIRECT_KNOWLEDGE",
+        )
+        try:
+            result = await model.ainvoke(prompt)
+            payload = self._parse_json_object(self._message_content(result))
+        except Exception as exc:
+            logger.warning("[reply-graph] groundedness model check failed: %s", exc)
+            return []
+
+        if "supported" not in payload:
+            logger.warning("[reply-graph] groundedness model returned invalid payload=%s", payload)
+            return []
+
+        if self._is_supported_value(payload.get("supported")):
+            return []
+
+        unsupported_facts = payload.get("unsupported_facts") or []
+        if isinstance(unsupported_facts, str):
+            unsupported_facts = [unsupported_facts]
+        unsupported_facts = [str(item).strip() for item in unsupported_facts if str(item or "").strip()]
+        reason = str(payload.get("reason") or "").strip()
+        if unsupported_facts:
+            issue = f"回复中存在未被证据支持的事实：{'、'.join(unsupported_facts)}"
+            if reason:
+                issue += f"；原因：{reason}"
+            return [issue]
+
+        return [f"回复中存在未被证据支持的事实：{reason or '模型判断事实依据不足'}"]
+
+    def _build_groundedness_check_prompt(self, draft: str, trusted_evidence: str, branch_result: str, route: str) -> str:
+        return f"""你是客服回复事实依据检查器。请对比【可信证据】、【分支结果】和【回复草稿】，判断中间结果与最终回复里的具体事实是否都能被可信证据支持。
+
+检查范围：
+- 需要核验的具体事实包括：月份、清扫次数、清扫面积、百分比、剩余天数、耗材状态、天气数值、故障结论、来源标题等。
+- 礼貌问候、追问、泛化建议不算具体事实。
+- 【可信证据】是唯一事实来源。
+- 【分支结果】是中间摘要，不是证据，也需要被核验。
+- 如果可信证据明确显示未查到记录，分支结果和回复草稿不得写任何具体使用记录、清洁次数、耗材寿命或清洁效率。
+- 只要分支结果或回复草稿中的具体事实无法在可信证据中找到，或与可信证据不一致，就判定 supported=false。
+
+当前路由：{route}
+
+可信证据：
+{trusted_evidence}
+
+分支结果：
+{branch_result or "无"}
+
+回复草稿：
+{draft}
+
+请只输出严格 JSON，不要输出 Markdown：
+{{"supported":true,"unsupported_facts":[],"reason":"一句话说明"}}
+"""
+
+    def _is_supported_value(self, value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() == "true"
+        return False
 
     def _check_completeness(self, draft: str, state: ReplySuggestionState) -> list[str]:
         issues = []
