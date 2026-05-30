@@ -1,6 +1,7 @@
 model:
   chat_model: qwen3-max-2026-01-23
   judge_model: qwen3-next-80b-a3b-instruct
+  router_model: qwen3-32b
   embedding_model: text-embedding-v4
   reranker_model: qwen3-rerank
 

@@ -27,7 +27,7 @@ def log_before_model(status: AgentState, runtime: Runtime):
 @after_model
 def log_after_model(status: AgentState, runtime: Runtime):
     """model 运行后执行此函数"""
-    logger.debug(f"[after_model] model运行结束， 输出：{type(status['messages'][-1]).__name__} | {status['messages'][-1].content.strip()}， 共{len(status['messages'])}条消息")
+    logger.debug(f"[after_model] model运行结束， 输出：{type(status['messages'][-1]).__name__} | {status['messages'][-1].content.strip()} 共{len(status['messages'])}条消息")
 
 @wrap_model_call
 async def model_call_hook(request, handler):

@@ -1,6 +1,3 @@
-from workOrderAI.utils.prompt_builder import REPLY_SUGGESTION_AGENT_PROMPT
-from workOrderAI.models.factory import chat_model
-from workOrderAI.agent.agent import ReactAgent
 import json
 
 from workOrderAI.agent.agent_context import (
@@ -13,14 +10,13 @@ from workOrderAI.agent.agent_context import (
 )
 from workOrderAI.app.model.request import ReplySuggestRequest, ReplyMessage
 from workOrderAI.app.model.response import ReplySuggestResponse, SourceTemplate
-from workOrderAI.app.service.case_memory_service import CaseMemoryService
-from workOrderAI.utils.logger_handler import logger
+from workOrderAI.app.service.reply_suggestion_graph import ReplySuggestionGraph
 
 
 
 class SuggestService:
     def __init__(self):
-        self.agent = ReactAgent(REPLY_SUGGESTION_AGENT_PROMPT)
+        self.graph = ReplySuggestionGraph()
 
     async def get_suggestion(self, work_order: ReplySuggestRequest):
         return (await self.get_suggestion_result(work_order)).suggested_reply
@@ -29,25 +25,14 @@ class SuggestService:
         """
         获取工单建议，并返回本轮可参考的历史案例来源。
         """
-        try:
-            prefetched_cases = await CaseMemoryService().search_similar_cases(
-                self._build_case_query(work_order)
-            )
-        except Exception as exc:
-            logger.error("[suggestion] prefetch similar cases failed: %s", exc, exc_info=True)
-            prefetched_cases = []
-
-        input = f'标题：{work_order.title}\n内容：{work_order.description}\n'
-        input += self._format_prefetched_cases(prefetched_cases)
-        input += '用户(user)和客服(service)的对话记录：\n'
-        for reply in work_order.history:
-            input += f'{reply.role}：{reply.content}\n'
-
         username_token = set_current_username(work_order.owner_username)
         owns_trace = not is_tool_trace_active()
         trace_token = start_tool_trace() if owns_trace else None
         try:
-            suggestion_reply = await self.agent.execute_invoke(input)
+            graph = getattr(self, "graph", None) or ReplySuggestionGraph()
+            result = await graph.run(work_order)
+            suggestion_reply = result.get("final_reply") or result.get("draft_reply") or ""
+            prefetched_cases = result.get("case_memories") or []
             source_templates = self._merge_case_sources(
                 self._build_case_sources(prefetched_cases),
                 self._extract_case_sources(get_tool_trace()),
@@ -60,6 +45,7 @@ class SuggestService:
         return ReplySuggestResponse(
             suggested_reply=suggestion_reply,
             source_templates=source_templates,
+            source_documents=result.get("rag_sources") or [],
         )
 
     def _build_case_query(self, work_order: ReplySuggestRequest) -> str:

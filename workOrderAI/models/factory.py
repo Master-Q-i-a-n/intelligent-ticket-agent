@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional
 from dotenv import load_dotenv
 
 from langchain_community.chat_models.tongyi import ChatTongyi
@@ -27,9 +27,10 @@ class BaseModelFactory(ABC):
 
 class ChatModelFactory(BaseModelFactory):
     """聊天模型工厂"""
-    def __init__(self, model_name: str | None = None, top_p: float = 0.7):
+    def __init__(self, model_name: str | None = None, top_p: float = 0.7, model_kwargs: dict[str, Any] | None = None):
         self.model_name = model_name or config['model']['chat_model']
         self.top_p = top_p
+        self.model_kwargs = model_kwargs or {}
 
     def generator(self) -> Optional[Embeddings | BaseChatModel]:
         """生成模型"""
@@ -37,6 +38,7 @@ class ChatModelFactory(BaseModelFactory):
             model=self.model_name,
             streaming=False,
             top_p=self.top_p,
+            model_kwargs=self.model_kwargs,
         )
 
 
@@ -56,6 +58,11 @@ chat_model = ChatModelFactory().generator()
 judge_model = ChatModelFactory(
     model_name=config["model"].get("judge_model", config["model"]["chat_model"]),
     top_p=0.2,
+).generator()
+router_model = ChatModelFactory(
+    model_name=config["model"].get("router_model", "qwen3-32b"),
+    top_p=0.1,
+    model_kwargs={"enable_thinking": False},
 ).generator()
 embed_model = EmbeddingsFactory().generator()
 reranker_model = RerankerModelFactory().generator()

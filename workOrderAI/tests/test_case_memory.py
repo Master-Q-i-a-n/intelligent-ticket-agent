@@ -145,15 +145,27 @@ class SuggestServiceAsyncTests(unittest.IsolatedAsyncioTestCase):
     async def test_prefetched_cases_are_injected_and_returned_without_tool_call(self):
         service = SuggestService.__new__(SuggestService)
 
-        class _DummyAgent:
+        class _DummyGraph:
             def __init__(self):
-                self.input = None
+                self.work_order = None
 
-            async def execute_invoke(self, input_text):
-                self.input = input_text
-                return "建议回复"
+            async def run(self, work_order):
+                self.work_order = work_order
+                return {
+                    "final_reply": "建议回复",
+                    "case_memories": [
+                        {
+                            "ticket_id": "fb-1",
+                            "ticket_code": "FB-001",
+                            "title": "保养",
+                            "final_reply": "定期清理主刷",
+                            "similarity_score": 0.95,
+                        }
+                    ],
+                    "rag_sources": [],
+                }
 
-        service.agent = _DummyAgent()
+        service.graph = _DummyGraph()
         work_order = type(
             "_WorkOrder",
             (),
@@ -165,36 +177,21 @@ class SuggestServiceAsyncTests(unittest.IsolatedAsyncioTestCase):
             },
         )()
 
-        with patch(
-            "workOrderAI.app.service.suggest_service.CaseMemoryService.search_similar_cases",
-            AsyncMock(
-                return_value=[
-                    {
-                        "ticket_id": "fb-1",
-                        "ticket_code": "FB-001",
-                        "title": "保养",
-                        "final_reply": "定期清理主刷",
-                        "similarity_score": 0.95,
-                    }
-                ]
-            ),
-        ):
-            result = await service.get_suggestion_result(work_order)
+        result = await service.get_suggestion_result(work_order)
 
         self.assertEqual(result.suggested_reply, "建议回复")
         self.assertEqual(len(result.source_templates), 1)
         self.assertEqual(result.source_templates[0].ticket_id, "fb-1")
-        self.assertIn("可参考的历史案例", service.agent.input)
-        self.assertIn("定期清理主刷", service.agent.input)
+        self.assertEqual(service.graph.work_order, work_order)
 
-    async def test_prefetch_failure_does_not_block_suggestion(self):
+    async def test_graph_without_cases_returns_suggestion(self):
         service = SuggestService.__new__(SuggestService)
 
-        class _DummyAgent:
-            async def execute_invoke(self, _input_text):
-                return "建议回复"
+        class _DummyGraph:
+            async def run(self, _work_order):
+                return {"final_reply": "建议回复", "case_memories": [], "rag_sources": []}
 
-        service.agent = _DummyAgent()
+        service.graph = _DummyGraph()
         work_order = type(
             "_WorkOrder",
             (),
@@ -206,11 +203,7 @@ class SuggestServiceAsyncTests(unittest.IsolatedAsyncioTestCase):
             },
         )()
 
-        with patch(
-            "workOrderAI.app.service.suggest_service.CaseMemoryService.search_similar_cases",
-            AsyncMock(side_effect=RuntimeError("boom")),
-        ):
-            result = await service.get_suggestion_result(work_order)
+        result = await service.get_suggestion_result(work_order)
 
         self.assertEqual(result.suggested_reply, "建议回复")
         self.assertEqual(result.source_templates, [])
