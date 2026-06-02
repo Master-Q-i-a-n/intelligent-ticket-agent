@@ -20,3 +20,6 @@ workOrderFrontend-main/dist/
 # Local IDE settings
 .idea/
 .vscode/
+.env
+
+try.py

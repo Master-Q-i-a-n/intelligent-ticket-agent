@@ -4,11 +4,11 @@ import uuid
 from pathlib import Path
 
 import pymysql
-import yaml
+
+from workOrderAI.utils.config import config
 
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = BASE_DIR / "config.yaml"
 CSV_PATH = BASE_DIR / "data" / "external" / "records.csv"
 
 FIELD_MAPPING = {
@@ -22,16 +22,9 @@ FIELD_MAPPING = {
 
 
 def load_mysql_config():
-    if not CONFIG_PATH.exists():
-        raise FileNotFoundError(f"配置文件不存在: {CONFIG_PATH}")
-
-    with CONFIG_PATH.open("r", encoding="utf-8") as file:
-        config = yaml.safe_load(file) or {}
-
     mysql_config = config.get("MySQL")
     if not mysql_config:
-        raise ValueError("config.yaml 中缺少 MySQL 配置")
-
+        raise ValueError("config.yaml missing MySQL config")
     return mysql_config
 
 

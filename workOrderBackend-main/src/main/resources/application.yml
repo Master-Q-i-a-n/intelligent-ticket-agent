@@ -30,3 +30,5 @@ springdoc:
 
 workorder:
   upload-dir: ${WORKORDER_UPLOAD_DIR:${user.dir}/uploads}
+  ai-service:
+    base-url: ${WORKORDER_AI_SERVICE_BASE_URL:http://localhost:8003}

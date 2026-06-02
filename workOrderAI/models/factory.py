@@ -51,7 +51,11 @@ class EmbeddingsFactory(BaseModelFactory):
 class RerankerModelFactory(BaseModelFactory):
     """重排序模型工厂"""
     def generator(self):
-        return DashScopeRerank(model=config['model']['reranker_model'])
+        reranker = DashScopeRerank(model=config['model']['reranker_model'])
+        # langchain_community 的 DashScopeRerank validator 会把 model 重置为默认
+        # gte-rerank，这里显式写回配置中的模型名，确保 qwen3-rerank 真正生效。
+        reranker.model = config['model']['reranker_model']
+        return reranker
 
 
 chat_model = ChatModelFactory().generator()

@@ -1,0 +1,87 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: workorder-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-work_order}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p${MYSQL_ROOT_PASSWORD:-123456} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ai-service:
+    build:
+      context: .
+      dockerfile: workOrderAI/Dockerfile
+    container_name: workorder-ai
+    restart: unless-stopped
+    environment:
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-workorder-agent}
+      AI_MYSQL_HOST: mysql
+      AI_MYSQL_PORT: 3306
+      AI_MYSQL_USER: root
+      AI_MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      AI_MYSQL_DATABASE: ${MYSQL_DATABASE:-work_order}
+      AI_FASTAPI_HOST: 0.0.0.0
+      AI_FASTAPI_PORT: 8003
+      AI_VECTOR_MILVUS_URI: data/milvus_lite.db
+    ports:
+      - "${AI_HOST_PORT:-8003}:8003"
+    volumes:
+      - ./workOrderAI/data:/app/workOrderAI/data
+      - ./workOrderAI/logs:/app/workOrderAI/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: ./workOrderBackend-main
+    container_name: workorder-backend
+    restart: unless-stopped
+    environment:
+      WORKORDER_DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-work_order}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      WORKORDER_DB_USERNAME: root
+      WORKORDER_DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      WORKORDER_AI_SERVICE_BASE_URL: http://ai-service:8003
+      WORKORDER_UPLOAD_DIR: /app/uploads
+    ports:
+      - "${BACKEND_HOST_PORT:-8080}:8080"
+    volumes:
+      - backend-uploads:/app/uploads
+      - "D:\\IntelliJ IDEA\\plugins\\maven\\lib\\maven3\\conf\\settings.xml:/root/.m2/settings.xml:ro"
+      - "D:\\MavenRepository:/root/.m2/repository"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./workOrderFrontend-main
+    container_name: workorder-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_HOST_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  mysql-data:
+  backend-uploads:

@@ -1,0 +1,12 @@
+.git/
+.idea/
+.vscode/
+**/__pycache__/
+**/*.py[cod]
+workOrderBackend-main/target/
+workOrderFrontend-main/node_modules/
+workOrderFrontend-main/dist/
+workOrderAI/logs/
+workOrderAI/data/
+workOrderAI/evals/results/
+*.log
