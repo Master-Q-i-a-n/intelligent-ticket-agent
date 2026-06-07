@@ -82,10 +82,10 @@ class ReplySuggestionGraph:
         graph.add_node("safe_fallback_reply", self.safe_fallback_reply)
 
         graph.add_edge(START, "load_context")
-        graph.add_edge("load_context", "retrieve_case_memory")
-        graph.add_edge("retrieve_case_memory", "route_query")
+        graph.add_edge("load_context", "route_query")
+        graph.add_edge("route_query", "retrieve_case_memory")
         graph.add_conditional_edges(
-            "route_query",
+            "retrieve_case_memory",
             self.route_to_branch,
             {
                 "DIRECT_KNOWLEDGE": "direct_knowledge_branch",
@@ -133,11 +133,17 @@ class ReplySuggestionGraph:
         }
 
     async def retrieve_case_memory(self, state: ReplySuggestionState) -> dict:
+        route = state.get("route") or "DIRECT_KNOWLEDGE"
+        if not self._should_retrieve_case_memory(state):
+            logger.info("[reply-graph] skip case memory route=%s", route)
+            return {"case_memories": []}
+
         try:
             cases = await self.case_memory_service.search_similar_cases(self._case_query(state["work_order"]))
         except Exception as exc:
             logger.error("[reply-graph] prefetch similar cases failed: %s", exc, exc_info=True)
             cases = []
+        logger.info("[reply-graph] case memory hits=%s route=%s", len(cases), route)
         return {"case_memories": cases}
 
     async def route_query(self, state: ReplySuggestionState) -> dict:
@@ -433,6 +439,19 @@ class ReplySuggestionGraph:
 
     def _needs_weather_context(self, text: str) -> bool:
         return self._contains_any(str(text or "").lower(), ["天气", "湿度", "潮湿", "下雨", "梅雨"])
+
+    def _should_retrieve_case_memory(self, state: ReplySuggestionState) -> bool:
+        route = state.get("route") or "DIRECT_KNOWLEDGE"
+        if route in {"DIRECT_KNOWLEDGE", "FAULT_DIAGNOSIS"}:
+            return True
+        if route != "USER_RECORD":
+            return False
+
+        query = self._case_query(state["work_order"])
+        return self._contains_any(
+            query,
+            ["需要注意", "注意什么", "建议", "是否正常", "怎么处理", "怎么优化"],
+        )
 
     def _format_cases(self, cases: list[dict]) -> str:
         lines = []
