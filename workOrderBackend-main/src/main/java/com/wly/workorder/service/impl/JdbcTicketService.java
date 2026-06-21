@@ -130,6 +130,9 @@ public class JdbcTicketService implements TicketService {
         false
       );
     }
+    if (updatedWorkOrder != null) {
+      queryAIService.rememberCaseAsync(updatedWorkOrder, findLastServiceReply(updatedWorkOrder.getReplies()));
+    }
 
     return updatedWorkOrder == null ? null : mapFeedbackFromWorkorder(updatedWorkOrder);
   }
@@ -188,11 +191,9 @@ public class JdbcTicketService implements TicketService {
     }
 
     WorkOrder updatedWorkOrder = queryWorkOrderById(id);
-    if (updatedWorkOrder != null && isCaseMemoryStatus(updatedWorkOrder.getStatus())) {
+    if (updatedWorkOrder != null) {
       FeedbackReply finalServiceReply = findLastServiceReply(updatedWorkOrder.getReplies());
-      if (finalServiceReply != null) {
-        queryAIService.rememberCaseAsync(updatedWorkOrder, finalServiceReply);
-      }
+      queryAIService.rememberCaseAsync(updatedWorkOrder, finalServiceReply);
     }
     return updatedWorkOrder;
   }
@@ -377,16 +378,16 @@ public class JdbcTicketService implements TicketService {
     if (replies == null || replies.isEmpty()) {
       return List.of();
     }
-    return replies.stream()
-      .map(reply -> Map.of(
-        "role", defaultString(reply.getRole(), "user"),
-        "content", defaultString(reply.getContent(), "")
-      ))
-      .collect(Collectors.toList());
-  }
-
-  private boolean isCaseMemoryStatus(TicketStatus status) {
-    return status == TicketStatus.SOLVED || status == TicketStatus.CLOSED;
+    List<Map<String, String>> messages = new ArrayList<>();
+    for (FeedbackReply reply : replies) {
+      Map<String, String> message = new LinkedHashMap<>();
+      message.put("id", defaultString(reply.getId(), ""));
+      message.put("role", defaultString(reply.getRole(), "user"));
+      message.put("content", defaultString(reply.getContent(), ""));
+      message.put("created_at", defaultString(reply.getCreatedAt(), ""));
+      messages.add(message);
+    }
+    return messages;
   }
 
   private FeedbackReply findLastServiceReply(List<FeedbackReply> replies) {

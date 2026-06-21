@@ -60,6 +60,18 @@ class ReplySuggestionGraphSemanticRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(route, "FAULT_DIAGNOSIS")
 
+    async def test_router_rejects_user_record_without_record_query_intent(self):
+        graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
+        graph.router_model = DummyRouterModel(
+            '{"route":"USER_RECORD","confidence":0.75,"reason":"更换电池后恢复属于使用记录"}'
+        )
+
+        route = await graph._classify_route(
+            "设备坏了，出现机身内部异响。清理杂物和检查连接线无效，更换电池后恢复正常。"
+        )
+
+        self.assertEqual(route, "FAULT_DIAGNOSIS")
+
     async def test_router_model_invalid_json_uses_rule_fallback(self):
         graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
         graph.router_model = DummyRouterModel("not json")
@@ -175,6 +187,38 @@ class ReplySuggestionGraphSelfCheckTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("保养案例", evidence)
         self.assertIn("维护保养", evidence)
         self.assertNotIn("滤网剩余10%", evidence)
+
+    def test_trusted_evidence_includes_ticket_recent_messages_and_confirmed_memory(self):
+        graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)
+        state = {
+            "work_order": ReplySuggestRequest(
+                id="fb-fault",
+                title="设备异响",
+                description="设备运行时出现异常声音",
+                owner_username="1001",
+                history=[
+                    {"id": "rep-1", "role": "user", "content": "机身内部有异响"},
+                    {"id": "rep-2", "role": "service", "content": "请清理杂物并检查连接线"},
+                    {"id": "rep-3", "role": "user", "content": "换了电池就好了"},
+                ],
+            ),
+            "ticket_memory": {
+                "confirmed_facts": ["更换电池后设备恢复正常"],
+                "attempted_steps": [
+                    {"action": "清理杂物并检查连接线", "result": "仍有异响", "status": "FAILED"}
+                ],
+            },
+            "branch_result": "模型推测电源管理模块损坏",
+        }
+
+        evidence = graph._format_trusted_evidence(state)
+
+        self.assertIn("设备运行时出现异常声音", evidence)
+        self.assertIn("机身内部有异响", evidence)
+        self.assertIn("换了电池就好了", evidence)
+        self.assertIn("更换电池后设备恢复正常", evidence)
+        self.assertIn("清理杂物并检查连接线", evidence)
+        self.assertNotIn("电源管理模块损坏", evidence)
 
     async def test_groundedness_model_supported_allows_reply(self):
         graph = ReplySuggestionGraph.__new__(ReplySuggestionGraph)

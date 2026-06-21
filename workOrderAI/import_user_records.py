@@ -120,11 +120,14 @@ def main():
     try:
         records = read_records()
         import_records(records)
+        from workOrderAI.app.service.user_memory_service import UserMemoryService
+
+        profile_count = UserMemoryService().rebuild_from_user_records()
     except Exception as exc:
         print(f"导入失败: {exc}", file=sys.stderr)
         return 1
 
-    print(f"导入完成，共导入 {len(records)} 条记录。")
+    print(f"导入完成，共导入 {len(records)} 条记录，生成/刷新 {profile_count} 条用户画像。")
     return 0
 
 

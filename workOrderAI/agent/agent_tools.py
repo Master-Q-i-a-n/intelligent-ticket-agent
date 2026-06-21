@@ -8,6 +8,7 @@ from workOrderAI.agent.agent_context import get_current_username_value
 from workOrderAI.app.model.database import get_db_connection
 from workOrderAI.app.service.case_memory_service import CaseMemoryService
 from workOrderAI.app.service.rag_service import RagService
+from workOrderAI.app.service.user_memory_service import UserMemoryService, format_user_profile
 from workOrderAI.utils.logger_handler import logger
 
 
@@ -179,6 +180,19 @@ def fetch_current_user_records(month: str = "") -> str:
     return _query_user_records(current_username, month, "fetch_current_user_records")
 
 
+@tool(description="Fetch active, non-expired profile facts for the current work order owner.")
+def fetch_current_user_profile() -> str:
+    current_username = get_current_username_value()
+    if not current_username:
+        logger.warning("[fetch_current_user_profile] blocked query because current username context is empty")
+        return ""
+    try:
+        return format_user_profile(UserMemoryService().list_active(current_username))
+    except Exception as exc:
+        logger.error("[fetch_current_user_profile] query failed: %s", exc, exc_info=True)
+        return ""
+
+
 @tool(description="Fetch user records from the user_records database table by user id and optional month.")
 def fetch_external_data(user_id: str, month: str = "") -> str:
     user_id = str(user_id or "").strip()
@@ -215,6 +229,7 @@ def get_tools():
         get_current_weather,
         get_current_username,
         fetch_current_user_records,
+        fetch_current_user_profile,
         fetch_external_data,
         fetch_similar_cases,
     ]

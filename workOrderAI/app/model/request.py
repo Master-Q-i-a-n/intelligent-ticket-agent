@@ -11,8 +11,10 @@ from typing import List, Optional
 # ==========================================
 class ReplyMessage(BaseModel):
     """对话中的单条消息"""
+    id: Optional[str] = None
     role: str                                           # 角色: user/service
     content: str                                        # 消息内容
+    created_at: Optional[str] = None
 
 
 class ClassifyRequest(BaseModel):
@@ -72,8 +74,11 @@ class CaseMemoryUpsertRequest(BaseModel):
     ticket_code: str
     title: str
     description: str
-    final_reply: str
+    final_reply: Optional[str] = None
     status: str
+    category: Optional[str] = None
+    owner_username: Optional[str] = None
+    history: List[ReplyMessage] = Field(default_factory=list)
 
 
 # ==========================================

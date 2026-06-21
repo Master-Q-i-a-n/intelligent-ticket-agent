@@ -42,6 +42,8 @@ public class DatabaseSeeder implements CommandLineRunner {
     ensureServiceGroupColumn();
     ensureKnowledgeDocumentTable();
     ensureCaseMemoryTable();
+    ensureTicketMemoryTable();
+    ensureUserMemoryTable();
 
     Integer userCount = jdbcTemplate.queryForObject("select count(*) from wo_user", Integer.class);
     if (userCount == null || userCount == 0) {
@@ -305,6 +307,83 @@ public class DatabaseSeeder implements CommandLineRunner {
       )
       """
     );
+    ensureColumn("wo_case_memory", "problem_summary", "text");
+    ensureColumn("wo_case_memory", "confirmed_facts_json", "text");
+    ensureColumn("wo_case_memory", "resolution_steps_json", "text");
+    ensureColumn("wo_case_memory", "resolution_result", "varchar(64) not null default ''");
+    ensureColumn("wo_case_memory", "category", "varchar(64) not null default ''");
+    ensureColumn("wo_case_memory", "quality_score", "double not null default 0.8");
+    ensureColumn("wo_case_memory", "active", "tinyint not null default 1");
+    ensureColumn("wo_case_memory", "memory_version", "int not null default 1");
+    ensureColumn("wo_case_memory", "embedding_model", "varchar(128) not null default ''");
+    ensureColumn("wo_case_memory", "vector_sync_status", "varchar(32) not null default 'PENDING'");
+    ensureColumn("wo_case_memory", "solved_at", "varchar(19) not null default ''");
+    jdbcTemplate.update("update wo_case_memory set problem_summary=problem_text where problem_summary is null or problem_summary='' ");
+    jdbcTemplate.update("update wo_case_memory set confirmed_facts_json='[]' where confirmed_facts_json is null");
+    jdbcTemplate.update("update wo_case_memory set resolution_steps_json='[]' where resolution_steps_json is null");
+  }
+
+  private void ensureTicketMemoryTable() {
+    jdbcTemplate.execute(
+      """
+      create table if not exists wo_ticket_memory (
+        ticket_id varchar(36) primary key,
+        history_cursor varchar(128) not null default '',
+        summary text not null,
+        confirmed_facts_json text not null,
+        attempted_steps_json text not null,
+        unresolved_json text not null,
+        version int not null default 1,
+        created_at varchar(19) not null,
+        updated_at varchar(19) not null
+      )
+      """
+    );
+  }
+
+  private void ensureUserMemoryTable() {
+    jdbcTemplate.execute(
+      """
+      create table if not exists wo_user_memory_item (
+        id varchar(36) primary key,
+        owner_username varchar(64) not null,
+        memory_type varchar(32) not null,
+        memory_key varchar(64) not null,
+        memory_value text not null,
+        source_type varchar(32) not null,
+        source_id varchar(128) not null default '',
+        source_reply_id varchar(36) not null default '',
+        extraction_batch_id varchar(128) not null,
+        confidence double not null,
+        importance double not null,
+        status varchar(32) not null,
+        valid_from varchar(19) not null,
+        expires_at varchar(19),
+        last_confirmed_at varchar(19) not null,
+        superseded_by varchar(36) not null default '',
+        version int not null default 1,
+        created_at varchar(19) not null,
+        updated_at varchar(19) not null,
+        unique key uk_user_memory_source (owner_username, memory_key, source_reply_id, extraction_batch_id),
+        key idx_user_memory_active (owner_username, status, memory_key)
+      )
+      """
+    );
+  }
+
+  private void ensureColumn(String tableName, String columnName, String definition) {
+    jdbcTemplate.execute((Connection connection) -> {
+      DatabaseMetaData metaData = connection.getMetaData();
+      try (ResultSet columns = metaData.getColumns(connection.getCatalog(), null, tableName, columnName)) {
+        if (columns.next()) {
+          return null;
+        }
+      }
+      try (Statement statement = connection.createStatement()) {
+        statement.execute("alter table " + tableName + " add column " + columnName + " " + definition);
+      }
+      return null;
+    });
   }
 
   private static String now() {

@@ -37,3 +37,14 @@ vector_store:
   k: 3
   separators: ["\n\n", "\n", "。", "！", "？", "!", "?", " ", ""]
   md5_hex_store: data/milvus_md5_store/md5_hex_store.txt
+
+memory:
+  enabled: true
+  recent_message_limit: 4
+  profile_limit: 5
+  case_candidate_limit: 8
+  case_limit: 2
+  extraction_confidence_threshold: 0.8
+  device_environment_ttl_days: 365
+  preference_ttl_days: 180
+  recurring_issue_ttl_days: 90

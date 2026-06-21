@@ -13,6 +13,7 @@ import com.wly.workorder.model.TicketModels.HistoricalCaseSource;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -111,7 +112,7 @@ public class QueryAIService {
         "category", workorder.getCategory(),
         "emotion", workorder.getEmotion(),
         "owner_username", workorder.getOwnerUsername(),
-        "history", workorder.getReplies()
+        "history", toReplyMessages(workorder.getReplies())
       );
       ResponseEntity<JsonNode> response = callAI("/ai/suggestion", requestBody);
       log.info("AI回复建议生成成功, ticketId: {}", workorder.getId());
@@ -123,21 +124,24 @@ public class QueryAIService {
   }
 
   public CompletableFuture<Void> rememberCaseAsync(WorkOrder workorder, FeedbackReply finalServiceReply) {
-    if (workorder == null || finalServiceReply == null || finalServiceReply.getContent() == null || finalServiceReply.getContent().isBlank()) {
+    if (workorder == null) {
       return CompletableFuture.completedFuture(null);
     }
     return CompletableFuture.runAsync(() -> {
       try {
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("ticket_id", workorder.getId());
+        requestBody.put("ticket_code", workorder.getCode());
+        requestBody.put("title", workorder.getTitle());
+        requestBody.put("description", workorder.getDescription());
+        requestBody.put("final_reply", finalServiceReply == null ? null : finalServiceReply.getContent());
+        requestBody.put("status", workorder.getStatus().name());
+        requestBody.put("category", workorder.getCategory() == null ? "" : workorder.getCategory().name());
+        requestBody.put("owner_username", workorder.getOwnerUsername());
+        requestBody.put("history", toReplyMessages(workorder.getReplies()));
         callAI(
           "/ai/case-memory",
-          Map.of(
-            "ticket_id", workorder.getId(),
-            "ticket_code", workorder.getCode(),
-            "title", workorder.getTitle(),
-            "description", workorder.getDescription(),
-            "final_reply", finalServiceReply.getContent(),
-            "status", workorder.getStatus().name()
-          )
+          requestBody
         );
         log.info("历史案例沉淀成功, ticketId: {}", workorder.getId());
       } catch (Exception e) {
@@ -287,6 +291,22 @@ public class QueryAIService {
       "replies", replies,
       "update_category", updateCategory
     );
+  }
+
+  private List<Map<String, String>> toReplyMessages(List<FeedbackReply> replies) {
+    if (replies == null || replies.isEmpty()) {
+      return List.of();
+    }
+    List<Map<String, String>> messages = new ArrayList<>();
+    for (FeedbackReply reply : replies) {
+      Map<String, String> message = new HashMap<>();
+      message.put("id", reply.getId() == null ? "" : reply.getId());
+      message.put("role", reply.getRole() == null ? "user" : reply.getRole());
+      message.put("content", reply.getContent() == null ? "" : reply.getContent());
+      message.put("created_at", reply.getCreatedAt() == null ? "" : reply.getCreatedAt());
+      messages.add(message);
+    }
+    return messages;
   }
 
   private List<SourceDocument> mapSourceDocuments(JsonNode sourceNodes) {

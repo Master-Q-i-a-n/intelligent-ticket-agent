@@ -11,6 +11,8 @@ from workOrderAI.agent.agent_tools import fetch_current_user_records, get_curren
 from workOrderAI.app.model.request import ReplySuggestRequest
 from workOrderAI.app.service.case_memory_service import CaseMemoryService
 from workOrderAI.app.service.rag_service import RagService
+from workOrderAI.app.service.ticket_memory_service import TicketMemoryService
+from workOrderAI.app.service.user_memory_service import UserMemoryService, format_user_profile
 from workOrderAI.models.factory import chat_model, router_model
 from workOrderAI.utils.logger_handler import logger
 from workOrderAI.utils.prompt_builder import AGENT_PROMPT
@@ -26,6 +28,8 @@ class ReplySuggestionState(TypedDict, total=False):
     work_order: ReplySuggestRequest
     ticket_text: str
     history_text: str
+    ticket_memory: dict
+    user_profile: list[dict]
     case_memories: list[dict]
     route: RouteName
     branch_result: str
@@ -58,6 +62,8 @@ class ReplySuggestionGraph:
         self.chat_model = chat_model
         self.router_model = router_model
         self.case_memory_service = CaseMemoryService()
+        self.ticket_memory_service = TicketMemoryService(model=router_model)
+        self.user_memory_service = UserMemoryService()
         self.user_record_agent = create_agent(
             model=chat_model,
             system_prompt=AGENT_PROMPT,
@@ -71,6 +77,7 @@ class ReplySuggestionGraph:
         graph.add_node("load_context", self.load_context)
         graph.add_node("retrieve_case_memory", self.retrieve_case_memory)
         graph.add_node("route_query", self.route_query)
+        graph.add_node("load_user_profile", self.load_user_profile)
         graph.add_node("direct_knowledge_branch", self.run_direct_knowledge_branch)
         graph.add_node("fault_diagnosis_branch", self.run_fault_branch)
         graph.add_node("user_record_branch", self.run_user_record_branch)
@@ -83,7 +90,8 @@ class ReplySuggestionGraph:
 
         graph.add_edge(START, "load_context")
         graph.add_edge("load_context", "route_query")
-        graph.add_edge("route_query", "retrieve_case_memory")
+        graph.add_edge("route_query", "load_user_profile")
+        graph.add_edge("load_user_profile", "retrieve_case_memory")
         graph.add_conditional_edges(
             "retrieve_case_memory",
             self.route_to_branch,
@@ -121,16 +129,34 @@ class ReplySuggestionGraph:
     async def load_context(self, state: ReplySuggestionState) -> dict:
         work_order = state["work_order"]
         ticket_text = f"标题：{work_order.title or ''}\n内容：{work_order.description or ''}".strip()
+        memory = await self.ticket_memory_service.refresh(work_order)
         history_lines = [
-            f"{reply.role}：{reply.content}"
-            for reply in (work_order.history or [])
-            if str(reply.content or "").strip()
+            f"{reply.get('role')}：{reply.get('content')}"
+            for reply in memory.get("recent_messages", [])
+            if str(reply.get("content") or "").strip()
         ]
         return {
             "ticket_text": ticket_text,
             "history_text": "\n".join(history_lines),
+            "ticket_memory": memory,
+            "user_profile": [],
             "retry_count": 0,
         }
+
+    async def load_user_profile(self, state: ReplySuggestionState) -> dict:
+        route = state.get("route") or "DIRECT_KNOWLEDGE"
+        if route in {"CLARIFY", "OUT_OF_SCOPE"}:
+            return {"user_profile": []}
+        owner_username = str(state["work_order"].owner_username or "").strip()
+        if not owner_username:
+            return {"user_profile": []}
+        try:
+            profile = self.user_memory_service.list_active(owner_username)
+        except Exception as exc:
+            logger.warning("[reply-graph] user profile load failed: %s", exc)
+            profile = []
+        logger.info("[reply-graph] user profile facts=%s route=%s", len(profile), route)
+        return {"user_profile": profile}
 
     async def retrieve_case_memory(self, state: ReplySuggestionState) -> dict:
         route = state.get("route") or "DIRECT_KNOWLEDGE"
@@ -139,7 +165,10 @@ class ReplySuggestionGraph:
             return {"case_memories": []}
 
         try:
-            cases = await self.case_memory_service.search_similar_cases(self._case_query(state["work_order"]))
+            cases = await self.case_memory_service.search_similar_cases(
+                self._case_query(state["work_order"], state.get("ticket_memory")),
+                category=str(state["work_order"].category or ""),
+            )
         except Exception as exc:
             logger.error("[reply-graph] prefetch similar cases failed: %s", exc, exc_info=True)
             cases = []
@@ -147,7 +176,7 @@ class ReplySuggestionGraph:
         return {"case_memories": cases}
 
     async def route_query(self, state: ReplySuggestionState) -> dict:
-        text = self._route_text(state["work_order"])
+        text = self._route_text(state["work_order"], state.get("ticket_memory"))
         route = await self._classify_route(text)
         logger.info("[reply-graph] route=%s", route)
         return {"route": route}
@@ -311,6 +340,8 @@ class ReplySuggestionGraph:
         work_order = state["work_order"]
         cases = self._format_cases(state.get("case_memories") or [])
         evidence = self._format_evidence(state)
+        working_memory = self._format_working_memory(state.get("ticket_memory") or {})
+        user_profile = format_user_profile(state.get("user_profile") or [])
         revision_text = ""
         if revision:
             check = state.get("check_result") or {}
@@ -323,6 +354,7 @@ class ReplySuggestionGraph:
 2. 不得输出 owner_username、ticket_id、数据库字段、工具 trace 等内部信息。
 3. 查不到记录时要明确说明未查到，不得编造具体记录。
 4. 必须回应用户核心诉求；信息不足时要追问关键补充信息。
+5. 已标记 FAILED 的尝试步骤不得再次作为首选建议；如必须重复，先解释原因并要求客服确认。
 
 工单：
 标题：{work_order.title or ""}
@@ -332,6 +364,12 @@ class ReplySuggestionGraph:
 
 历史对话：
 {state.get("history_text") or "无"}
+
+工单工作记忆：
+{working_memory or "无"}
+
+用户有效画像：
+{user_profile or "无"}
 
 可参考历史案例：
 {cases or "无"}
@@ -347,6 +385,8 @@ class ReplySuggestionGraph:
 
     def _build_user_record_agent_input(self, state: ReplySuggestionState) -> str:
         work_order = state["work_order"]
+        working_memory = self._format_working_memory(state.get("ticket_memory") or {})
+        user_profile = format_user_profile(state.get("user_profile") or [])
         return f"""请处理当前工单中的用户使用记录查询需求。
 
 工单标题：{work_order.title or ""}
@@ -354,15 +394,47 @@ class ReplySuggestionGraph:
 历史对话：
 {state.get("history_text") or "无"}
 
+工单工作记忆：
+{working_memory or "无"}
+
+用户有效画像：
+{user_profile or "无"}
+
 请根据用户问题决定是否需要 get_time_now、fetch_current_user_records、rag_summarize。
 只输出本次查询和分析得到的事实摘要，不要输出完整客服话术。"""
 
-    def _case_query(self, work_order: ReplySuggestRequest) -> str:
-        return f"{work_order.title or ''}\n{work_order.description or ''}".strip()
+    def _case_query(self, work_order: ReplySuggestRequest, ticket_memory: dict | None = None) -> str:
+        memory = ticket_memory or {}
+        facts = "；".join(str(item) for item in memory.get("confirmed_facts", []))
+        parts = [work_order.title or "", work_order.description or "", facts]
+        return "\n".join(part for part in parts if part).strip()
 
-    def _route_text(self, work_order: ReplySuggestRequest) -> str:
+    def _route_text(self, work_order: ReplySuggestRequest, ticket_memory: dict | None = None) -> str:
         history = "\n".join(f"{reply.role}:{reply.content}" for reply in (work_order.history or [])[-3:])
-        return f"{work_order.title or ''}\n{work_order.description or ''}\n{history}".strip()
+        summary = str((ticket_memory or {}).get("summary") or "")
+        return f"{work_order.title or ''}\n{work_order.description or ''}\n{summary}\n{history}".strip()
+
+    def _format_working_memory(self, memory: dict) -> str:
+        lines = []
+        if memory.get("summary"):
+            lines.append(f"历史摘要：{memory['summary']}")
+        facts = memory.get("confirmed_facts") or []
+        if facts:
+            lines.append("已确认事实：" + "；".join(str(item) for item in facts))
+        steps = memory.get("attempted_steps") or []
+        if steps:
+            lines.append(
+                "已尝试步骤："
+                + "；".join(
+                    f"[{item.get('status', 'UNKNOWN')}] {item.get('action', '')}（{item.get('result', '') or '结果未确认'}）"
+                    for item in steps
+                    if isinstance(item, dict) and item.get("action")
+                )
+            )
+        unresolved = memory.get("unresolved") or []
+        if unresolved:
+            lines.append("待确认问题：" + "；".join(str(item) for item in unresolved))
+        return "\n".join(lines)
 
     async def _classify_route(self, text: str) -> RouteName:
         fallback_route = self._classify_route_by_rules(text)
@@ -375,6 +447,12 @@ class ReplySuggestionGraph:
             reason = payload.get("reason") or ""
             if route not in VALID_ROUTES:
                 logger.warning("[reply-graph] router returned invalid route=%s, fallback=%s", route, fallback_route)
+                return fallback_route
+            if route == "USER_RECORD" and not self._has_user_record_intent(text):
+                logger.info(
+                    "[reply-graph] reject USER_RECORD without explicit record query intent, fallback=%s",
+                    fallback_route,
+                )
                 return fallback_route
             if confidence < ROUTER_CONFIDENCE_THRESHOLD:
                 logger.info(
@@ -394,16 +472,27 @@ class ReplySuggestionGraph:
         normalized = str(text or "").lower()
         if self._is_too_vague(normalized):
             return "CLARIFY"
-        if (
-            self._contains_any(normalized, ["记录", "使用情况", "清洁效率", "去年", "上个月", "这个月", "本月", "最近"])
-            or ("我" in normalized and self._contains_any(normalized, ["耗材", "剩余"]))
-        ):
+        if self._has_user_record_intent(normalized):
             return "USER_RECORD"
         if self._contains_any(normalized, ["坏", "故障", "不能", "无法", "异常", "报错", "不出水", "回不了充", "乱跑", "打转", "卡住", "失灵"]):
             return "FAULT_DIAGNOSIS"
         if self._contains_any(normalized, ["老板", "股票", "彩票", "写歌", "考试答案", "无关"]):
             return "OUT_OF_SCOPE"
         return "DIRECT_KNOWLEDGE"
+
+    def _has_user_record_intent(self, text: str) -> bool:
+        normalized = str(text or "").lower()
+        if "我" in normalized and self._contains_any(normalized, ["耗材还剩", "耗材剩余", "我的耗材"]):
+            return True
+        record_subject = self._contains_any(
+            normalized,
+            ["使用记录", "清扫记录", "清洁记录", "使用情况", "清洁效率", "清扫次数", "清洁次数"],
+        )
+        query_signal = self._contains_any(
+            normalized,
+            ["查", "看", "什么", "多少", "几次", "去年", "上个月", "这个月", "本月", "最近"],
+        )
+        return record_subject and query_signal
 
     def _build_route_prompt(self, text: str) -> str:
         return f"""你是智能工单回复建议的路由器。请只根据当前工单内容判断应走哪条处理分支。
@@ -417,6 +506,8 @@ class ReplySuggestionGraph:
 
 判断要求：
 - 如果用户同时提到“使用记录”和“注意事项/建议”，优先 USER_RECORD，因为需要先查记录。
+- 故障排查中提到“尝试过什么、处理结果、更换部件后恢复”不属于 USER_RECORD。
+- USER_RECORD 必须是用户明确要求查询历史使用数据、清扫次数、清洁效率或耗材余量。
 - 如果只是问耗材怎么更换、如何保养，属于 DIRECT_KNOWLEDGE，不要误判为 USER_RECORD。
 - 如果用户只是称呼“老板/客服”，但实际问题是机器人故障，不要因为称呼误判为 OUT_OF_SCOPE。
 - confidence 表示你对 route 的置信度，范围 0 到 1。
@@ -476,6 +567,36 @@ class ReplySuggestionGraph:
     def _format_trusted_evidence(self, state: ReplySuggestionState) -> str:
         trace = get_tool_trace()
         evidence = []
+        work_order = state.get("work_order")
+        if work_order:
+            title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", str(work_order.title or ""))).strip()
+            description = re.sub(
+                r"\s+", " ", re.sub(r"<[^>]+>", " ", str(work_order.description or ""))
+            ).strip()
+            evidence.append(f"工单原始内容：标题={title or '无'}；描述={description or '无'}")
+
+            recent_messages = []
+            for reply in (work_order.history or [])[-4:]:
+                content = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", str(reply.content or ""))).strip()
+                if content:
+                    recent_messages.append(f"{reply.role}：{content}")
+            if recent_messages:
+                evidence.append("最近原始对话：\n" + "\n".join(recent_messages))
+
+        memory = state.get("ticket_memory") or {}
+        confirmed_facts = [str(item).strip() for item in memory.get("confirmed_facts", []) if str(item).strip()]
+        if confirmed_facts:
+            evidence.append("工作记忆确认事实：" + "；".join(confirmed_facts))
+        attempted_steps = []
+        for item in memory.get("attempted_steps", []):
+            if not isinstance(item, dict) or not str(item.get("action") or "").strip():
+                continue
+            attempted_steps.append(
+                f"[{item.get('status') or 'UNKNOWN'}] {item.get('action')}（{item.get('result') or '结果未确认'}）"
+            )
+        if attempted_steps:
+            evidence.append("工作记忆尝试结果：" + "；".join(attempted_steps))
+
         for item in trace:
             evidence.append(
                 f"工具 {item.get('name')} 参数 {item.get('args')} 返回：{self._truncate(item.get('output') or '', 1200)}"
